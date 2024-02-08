@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "pub-ml-psl"
+version = "0.1.0"
+description = ""
+authors = ["Stefan <stefan.heid@lmu.de>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.10,<3.13"
+scikit-learn = "^1.3.2"
+pandas = "^2.1.4"
+numpy = "^1.26.3"
+scipy = "^1.11.4"
+jupyter = "^1.0.0"
+matplotlib = "^3.8.2"
+seaborn = "^0.13.1"
+tqdm = "^4.66.1"
+scikit-psl = "^0.6.2"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
