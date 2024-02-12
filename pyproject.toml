@@ -15,7 +15,7 @@ jupyter = "^1.0.0"
 matplotlib = "^3.8.2"
 seaborn = "^0.13.1"
 tqdm = "^4.66.1"
-scikit-psl = "^0.6.2"
+scikit-psl = {git="http://github.com/trr318/scikit-psl", branch="feature/pubml"}
 
 
 [build-system]
