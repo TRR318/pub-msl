@@ -5,7 +5,7 @@ from typing import Optional
 import pandas as pd
 
 
-class ResultHandler():
+class ResultHandler:
     def __init__(self, outdir="../results"):
         self.outdir = Path(outdir)
 
@@ -17,7 +17,9 @@ class ResultHandler():
             df = pd.read_csv(self._file(key))
         except FileNotFoundError:
             df = pd.DataFrame()
-        pd.concat((df, pd.DataFrame(multikey | result))).to_csv(self._file(key), index=False)
+        pd.concat((df, pd.DataFrame(multikey | result))).to_csv(
+            self._file(key), index=False
+        )
 
     def is_unprocessed(self, key):
         d = self._to_dict(key)
@@ -27,8 +29,9 @@ class ResultHandler():
         try:
             df = pd.read_csv(self._file(key))
             keys = set(
-                (row["fold"], frozenset(literal_eval(row["params"]).items())) for _, row in
-                df[["fold", "params"]].iterrows())
+                (row["fold"], frozenset(literal_eval(row["params"]).items()))
+                for _, row in df[["fold", "params"]].iterrows()
+            )
             if (fold, frozenset(params.items())) in keys:
                 return False
         except FileNotFoundError:
@@ -40,9 +43,20 @@ class ResultHandler():
         return self.outdir / f"results_{dataset}.csv"
 
     def _to_dict(self, key, *, repeat: Optional[int] = None):
-        data_name, fold, params = key
+        data_name, fold, params, stage = key
         clf, *hyperparam = params
-        df = pd.DataFrame([dict(dataset=data_name, fold=fold, params=dict(hyperparam), clf=clf) | dict(hyperparam)])
+        df = pd.DataFrame(
+            [
+                dict(
+                    dataset=data_name,
+                    fold=fold,
+                    stage=stage,
+                    params=dict(hyperparam),
+                    clf=clf,
+                )
+                | dict(hyperparam)
+            ]
+        )
         if repeat is not None:
             df = pd.concat([df] * repeat)
             return df.to_dict(orient="list")
