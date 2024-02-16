@@ -12,6 +12,7 @@ from tqdm import tqdm
 from util import ResultHandler
 from skpsl import ProbabilisticScoringList
 from skpsl.preprocessing.binarizer import MinEntropyBinarizer
+from skpsl.metrics import expected_entropy_loss
 
 
 def estimator_factory(param):
@@ -42,44 +43,42 @@ def worker(key):
         y,
         cv=ShuffleSplit(1, test_size=0.33, random_state=fold),
         n_jobs=1,
-        scoring=["accuracy", "roc_auc"],
+        scoring=[
+            "accuracy",
+            "roc_auc",
+            "neg_brier_score",
+            # dict(expected_entropy=expected_entropy_loss),
+        ],
         return_estimator=True,
         return_indices=True,
     )
     (est,) = results["estimator"]
     indices = results["indices"]
+    del results["estimator"]
+    del results["indices"]
     (train,) = indices["train"]
     (test,) = indices["test"]
     X_train, X_test, y_train, y_test = X[train], X[test], y[train], y[test]
-    results["expected_entropy_train"] = [est.score(X_train, y_train)]
-    results["expected_entropy_test"] = [est.score(X_test, y_test)]
     if isinstance(est, Pipeline):
         pre = est.named_steps["minentropybinarizer"]
-        psl = est.named_steps["probabilisticscoringlists"]
+        psl = est.named_steps["probabilisticscoringlist"]
         X_train = pre.transform(X_train)
         X_test = pre.transform(X_test)
     else:
         psl = est
-    keys = [key + (-1,)]
-    resultss = [results]
-    for k, stage_clf in enumerate(est.stage_clfs):
-        cur_results = {}
-        cur_results["expected_entropy_train"] = [stage_clf.score(X_train, y_train)]
-        cur_results["expected_entropy_test"] = [stage_clf.score(X_test, y_test)]
-        cur_results["fit_time"] = [-1]
-        cur_results["score_time"] = [-1]
+    resultss = [(key + (None,), results)]
+    for k, stage_clf in enumerate(psl.stage_clfs):
         y_pred = stage_clf.predict(X_test)
-
-        cur_results["test_accuracy"] = [accuracy_score(y_test, y_pred)]
-        cur_results["test_roc_auc"] = [
-            roc_auc_score(y_test, stage_clf.predict_proba(X_test)[:, 1])
-        ]
-        keys.append(key + (k,))
-        resultss.append(cur_results)
-    # TODO if clf has stages, than also crossval each stage
-    del results["estimator"]
-    del results["indices"]
-    return zip(keys, resultss)
+        cur_results = {
+            "expected_entropy_train": [stage_clf.score(X_train, y_train)],
+            "expected_entropy_test": [stage_clf.score(X_test, y_test)],
+            "test_accuracy": [accuracy_score(y_test, y_pred)],
+            "test_roc_auc": [
+                roc_auc_score(y_test, stage_clf.predict_proba(X_test)[:, 1])
+            ],
+        }
+        resultss.append((key + (k,), cur_results))
+    return resultss
 
 
 def dict_product(prefix, d):
@@ -89,16 +88,16 @@ def dict_product(prefix, d):
 
 
 if __name__ == "__main__":
-    datasets = [42900]
-    splits = 3
+    datasets = [41945]
+    splits = 10
 
     rh = ResultHandler("./results")
     score_set = (-1, -2, -3, 1, 2, 3)
     # create searchspace
     clf_params = chain(
-        # dict_product(
-        #     prefix="pipeline", d=dict(score_set=[score_set], method=["bisect", "brute"])
-        # ),
+        dict_product(
+            prefix="pipeline", d=dict(score_set=[score_set], method=["bisect", "brute"])
+        ),
         dict_product(
             prefix="psl", d=dict(score_set=[score_set], method=["bisect", "brute"])
         ),
