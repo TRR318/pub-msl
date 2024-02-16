@@ -68,6 +68,7 @@ def worker(key):
         psl = est
     resultss = [(key + (None,), results)]
     for k, stage_clf in enumerate(psl.stage_clfs):
+        # TODO evaluate Logostic Regression with feature set of stage_clf
         y_pred = stage_clf.predict(X_test)
         cur_results = {
             "expected_entropy_train": [stage_clf.score(X_train, y_train)],
