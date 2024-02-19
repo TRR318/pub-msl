@@ -43,14 +43,13 @@ class ResultHandler:
         return self.outdir / f"results_{dataset}.csv"
 
     def _to_dict(self, key, *, repeat: Optional[int] = None):
-        data_name, fold, params, stage = key
+        fold, data_name, params = key
         clf, *hyperparam = params
         df = pd.DataFrame(
             [
                 dict(
                     dataset=data_name,
                     fold=fold,
-                    stage=stage,
                     params=dict(hyperparam),
                     clf=clf,
                 )
