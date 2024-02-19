@@ -1,4 +1,4 @@
-from ast import literal_eval
+from hashlib import md5
 from pathlib import Path
 from typing import Optional
 
@@ -6,41 +6,37 @@ import pandas as pd
 
 
 class ResultHandler:
-    def __init__(self, outdir="../results"):
-        self.outdir = Path(outdir)
+    def __init__(self, dir="../results"):
+        self.dir = Path(dir)
 
-    def write_results(self, params):
-        key, result = params
-        multikey = self._to_dict(key, repeat=len(list(result.values())[0]))
+    def write_results(self, key, result):
+        multikey = self._to_dict(key, repeat=len(result))
 
-        try:
-            df = pd.read_csv(self._file(key))
-        except FileNotFoundError:
-            df = pd.DataFrame()
-        pd.concat((df, pd.DataFrame(multikey | result))).to_csv(
-            self._file(key), index=False
-        )
+        filename = self._file(key)
+        pd.DataFrame(multikey | pd.DataFrame(result).to_dict("list")).to_csv(filename, index=False)
+
+    def register_run(self, key):
+        filename = self._file(key)
+        filename.touch()
 
     def is_unprocessed(self, key):
-        d = self._to_dict(key)
-        fold = d["fold"]
-        params = d["params"]
-        # check if fold was already processed
-        try:
-            df = pd.read_csv(self._file(key))
-            keys = set(
-                (row["fold"], frozenset(literal_eval(row["params"]).items()))
-                for _, row in df[["fold", "params"]].iterrows()
-            )
-            if (fold, frozenset(params.items())) in keys:
-                return False
-        except FileNotFoundError:
-            pass
-        return True
+        filename = self._file(key)
+        assert not filename.is_dir()
+        return not filename.is_file()
+
+    def clean(self):
+        for f in self.dir.iterdir():
+            if f.stat().st_size == 0:
+                f.unlink()
 
     def _file(self, key):
-        dataset = self._to_dict(key)["dataset"]
-        return self.outdir / f"results_{dataset}.csv"
+        d = self._to_dict(key)
+        hash = md5(str(d).encode()).hexdigest()
+        del d["params"]
+        name = ",".join([f"{k}={v}" for k, v in d.items()]).replace(" ", "")
+        name = f"{name[0:190]}—{hash[:16]}"
+
+        return self.dir / f"{name}.csv"
 
     def _to_dict(self, key, *, repeat: Optional[int] = None):
         fold, data_name, params = key
