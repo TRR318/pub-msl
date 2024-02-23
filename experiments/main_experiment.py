@@ -110,7 +110,7 @@ def dict_product(prefix, d):
 
 
 if __name__ == "__main__":
-    datasets = ["thorax", 41945, 43979, 42900]
+    datasets = ["thorax", 41945, 42900]
     splits = 50
 
     rh = ResultHandler(RESULTFOLDER)
@@ -135,7 +135,7 @@ if __name__ == "__main__":
         #   prefix="psl", d=base | dict(lookahead=[1, 2])
         #),
         dict_product(
-            prefix="psl_prebin", d=base | dict(score_set=[(1,), (1, 2), (1, 2, 3), (-3, -2, -1, 1, 2, 3)])
+            prefix="psl_prebin", d=base | dict(score_set=[(-3,-2,-1), (-2,-1), (1,), (1, 2), (1, 2, 3), (-3, -2, -1, 1, 2, 3)])
         ),
     )
 
@@ -145,7 +145,7 @@ if __name__ == "__main__":
 
     worker = worker_facory()
     list(tqdm(
-        Parallel(n_jobs=2, return_as="generator_unordered")(
+        Parallel(n_jobs=12, return_as="generator_unordered")(
             worker(fold, dataset, params)
             for fold, dataset, params
             in grid
