@@ -13,7 +13,7 @@ from experiments.util import DataLoader
 from util import ResultHandler
 from skpsl import ProbabilisticScoringList
 from skpsl.preprocessing.binarizer import MinEntropyBinarizer
-from skpsl.metrics import expected_entropy_loss, weighted_loss
+from skpsl.metrics import expected_entropy_loss, weighted_loss, soft_ranking_loss
 
 RESULTFOLDER = "results"
 DATAFOLDER = "data"
@@ -131,11 +131,15 @@ if __name__ == "__main__":
             prefix="psl",
             d=base | dict(stage_clf_params=[("calibration_method", "isotonic"), ("calibration_method", "beta")])
         ),
-        #dict_product(
+        # dict_product(
         #   prefix="psl", d=base | dict(lookahead=[1, 2])
-        #),
+        # ),
         dict_product(
-            prefix="psl_prebin", d=base | dict(score_set=[(-3,-2,-1), (-2,-1), (1,), (1, 2), (1, 2, 3), (-3, -2, -1, 1, 2, 3)])
+            prefix="psl_prebin",
+            d=base | dict(score_set=[(-3, -2, -1), (-2, -1), (1,), (1, 2), (1, 2, 3), (-3, -2, -1, 1, 2, 3)])
+        ),
+        dict_product(
+            prefix="psl_prebin", d=base | dict(stage_loss=[soft_ranking_loss])
         ),
     )
 
