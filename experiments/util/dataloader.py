@@ -17,9 +17,11 @@ class DataLoader:
 
         X, y = fetch_openml(data_id=dataset, return_X_y=True, as_frame=False)
         match dataset:
-            case 41945: # liver
+            case 41945:  # liver
                 y = np.array(y == "1", dtype=int)
-            case 42900: # breast
+            case 42900:  # breast
                 y = np.array(y == 2, dtype=int)
+            case _:
+                ValueError(f"Dataloader does not know how to handle dataset {dataset}")
         pd.DataFrame(np.hstack((X, y.reshape(-1, 1)))).to_csv(file, index=False)
         return X, y

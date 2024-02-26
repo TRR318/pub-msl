@@ -41,15 +41,16 @@ class ResultHandler:
     def _to_dict(self, key, *, repeat: Optional[int] = None):
         fold, data_name, params = key
         clf, *hyperparam = params
+        hyperparam = {k: f"{v.__name__ if hasattr(v, '__name__') else v}" for k, v in hyperparam}
         df = pd.DataFrame(
             [
                 dict(
                     dataset=data_name,
                     fold=fold,
-                    params=dict(hyperparam),
+                    params=hyperparam,
                     clf=clf,
                 )
-                | dict(hyperparam)
+                | hyperparam
             ]
         )
         if repeat is not None:
