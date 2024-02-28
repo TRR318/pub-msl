@@ -2533,7 +2533,7 @@ sortedcontainers = "^2.4.0"
 type = "git"
 url = "http://github.com/trr318/scikit-psl"
 reference = "feature/pubml"
-resolved_reference = "0aed4a4b1bb8fc59cb88ee29708e9a47e7f50e84"
+resolved_reference = "be54c74d7ccb22c8aa979906474b63901d1798d1"
 
 [[package]]
 name = "scipy"

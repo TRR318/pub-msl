@@ -36,7 +36,7 @@ offset = np.array([np.tile(np.array(sorted(np.arange(per_line)-per_line/2, key=a
 (1+np.arange(per_line*lines)//per_line)*.015])
 X_shift = np.array([a[:,j]-(offset[:,i] * (-1)**a[1,j])  for j in range(c.size) for i in range(c[j]) ])
 
-ax.scatter(*X_shift.T, s=3)
+ax.scatter(*X_shift.T, s=5, c="gray", label="Raw datapoints")
 #d = np.array([scores.squeeze(),y*1.04-.02], dtype=float)
 #d+= np.array([np.random.uniform(-.35,.35, d.shape[1]), np.random.uniform(-.02,.02, d.shape[1])])
 #ax.scatter(*d, s=5)
@@ -45,7 +45,7 @@ ax.step(calibrators["isotonic"].X_thresholds_, calibrators["isotonic"].y_thresho
 X_ = np.linspace(scores.min(), scores.max(),1000)
 ax.plot(X_, calibrators["beta"].transform(X_.reshape(-1,1)), label="Beta Calibration")
 ax.xaxis.set_major_locator(MaxNLocator(integer=True, min_n_ticks=11))
-fig.legend(loc='lower center', ncol=3, bbox_to_anchor=(0.8, 1), frameon=False)
+fig.legend(loc='upper center', ncol=3, bbox_to_anchor=(0.5, 0), frameon=False)
 ax.set_xlabel("$T(x)$")
 ax.set_ylabel("$\hat{q}$")
 plt.show()
