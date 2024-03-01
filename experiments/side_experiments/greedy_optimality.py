@@ -12,7 +12,7 @@ from skpsl.estimators import ProbabilisticScoringSystem, ProbabilisticScoringLis
 from experiments.util import DataLoader
 
 RESULTFOLDER = "results"
-DATAFOLDER = "data"
+DATAFOLDER = "../data"
 scoreset = [0, 1, 2]
 dataset = "thorax"
 
@@ -63,10 +63,10 @@ pos = {p: p for p in G.nodes}
 sns.set(font_scale=1.5, rc={"text.usetex": True})
 sns.set_style("whitegrid")
 plt.rc("font", **{"family": "serif"})
-fig, ax = plt.subplots()
-fig.set_size_inches(13, 4)
-ax.set_ylabel("Expected Entropy in sample")
-ax.set_xlabel("Model Complexity")
+fig, ax = plt.subplots(layout="constrained")
+fig.set_size_inches(12, 4)
+ax.set_ylabel("Expected Entropy")
+ax.set_xlabel("Stage")
 
 print("drawing edges")
 nx.draw_networkx_edges(
@@ -76,7 +76,7 @@ nx.draw_networkx_edges(
 # highlight cascade
 print("fitting cascade")
 psl = ProbabilisticScoringList(score_set=set(scoreset) - {0}).fit(X, y)
-cascade = [(i, round(clf.score(X,y), 3)) for i, clf in enumerate(psl.stage_clfs)]
+cascade = [(i, round(clf.score(X, y), 3)) for i, clf in enumerate(psl.stage_clfs)]
 
 G = nx.Graph()
 for u, v in zip(cascade, cascade[1:]):
@@ -91,7 +91,7 @@ ax.xaxis.set_major_locator(MultipleLocator(1))
 ax.set_xlim(-0.2, X.shape[1] + 0.2)
 
 print("generating file")
-fig.suptitle(dataset.title())
-plt.show()
+fig.suptitle("Coronary Heart Disease")
+# plt.show()
 
-fig.savefig(f"fig/{dataset}_greedy_search.pdf", bbox_inches="tight")
+fig.savefig(f"../../fig/{dataset}_greedy_search.pdf", bbox_inches="tight")
