@@ -53,8 +53,15 @@ def worker_facory():
                    bacc=get_scorer("balanced_accuracy"),
                    roc=get_scorer("roc_auc"),
                    brier=get_scorer("neg_brier_score"),
-                   ent=make_scorer(lambda _, pred: expected_entropy_loss(pred), response_method="predict_proba")
+                   ent=make_scorer(lambda _, pred: expected_entropy_loss(pred), response_method="predict_proba"),
+                   wloss=make_scorer(weighted_loss, response_method="predict_proba")
                    )
+
+    # this function can be used to calculate scoring functions, where the out-of-sample calculation needs to take decision thresholds
+    # for the in-sample calculation into account
+    def sample_aware_scorer(estimator, X_train, X_test, y_train, y_test):
+        d = dict()
+        return d
 
     @delayed
     @wrap_non_picklable_objects
@@ -90,14 +97,12 @@ def worker_facory():
         psl = est[-1]
 
         results = pd.DataFrame(results).to_dict("records")
-        results[0]["train_wloss"], thresh = weighted_loss(y_train, psl.predict_proba(X_train)[:, 1],
-                                                          return_threshold=True)
-        results[0]["test_wloss"] = weighted_loss(y_train, psl.predict_proba(X_train)[:, 1], threshold=thresh)
-
+        results[0] |= sample_aware_scorer(psl, X_train, X_test, y_train, y_test)
         for k, stage in enumerate(psl):
             cur_results = (
                     {f"train_{name}": scorer(stage, X_train, y_train) for name, scorer in scoring.items()} |
                     {f"test_{name}": scorer(stage, X_test, y_test) for name, scorer in scoring.items()} |
+                    sample_aware_scorer(psl, X_train, X_test, y_train, y_test) |
                     dict(stage=k))
             results.append(cur_results)
 
@@ -106,6 +111,7 @@ def worker_facory():
                 cur_results = (
                         {f"train_{name}": scorer(stage, X_train, y_train) for name, scorer in scoring.items()} |
                         {f"test_{name}": scorer(stage, X_test, y_test) for name, scorer in scoring.items()} |
+                        sample_aware_scorer(psl, X_train, X_test, y_train, y_test) |
                         dict(stage=k) |
                         dict(clf_variant="logreg"))
                 results.append(cur_results)
@@ -116,6 +122,7 @@ def worker_facory():
                 cur_results = (
                         {f"train_{name}": scorer(logreg, X_train_, y_train) for name, scorer in scoring.items()} |
                         {f"test_{name}": scorer(logreg, X_test_, y_test) for name, scorer in scoring.items()} |
+                        sample_aware_scorer(psl, X_train_, X_test_, y_train, y_test) |
                         dict(stage=k) |
                         dict(clf_variant="logreg"))
                 results.append(cur_results)
@@ -132,7 +139,7 @@ def dict_product(prefix, d):
 
 if __name__ == "__main__":
     datasets = ["thorax", 41945, 42900]
-    splits = 50
+    splits = 100
 
     rh = ResultHandler(RESULTFOLDER)
     rh.clean()
@@ -152,9 +159,10 @@ if __name__ == "__main__":
             prefix="psl",
             d=base | dict(stage_clf_params=[("calibration_method", "isotonic"), ("calibration_method", "beta")])
         ),
-        # dict_product(
-        #   prefix="psl", d=base | dict(lookahead=[1, 2])
-        # ),
+        dict_product(
+            prefix="psl_prebin",
+            d=base | dict(stage_clf_params=[("calibration_method", "isotonic"), ("calibration_method", "beta")])
+        ),
         dict_product(
             prefix="psl_prebin",
             d=base | dict(score_set=[(-3, -2, -1), (-2, -1), (1,), (1, 2), (1, 2, 3), (-3, -2, -1, 1, 2, 3)])
@@ -162,7 +170,7 @@ if __name__ == "__main__":
         dict_product(
             prefix="psl",
             d=base
-            | dict(
+              | dict(
                 score_set=[
                     (-3, -2, -1, 1, 2, 3),
                     (-2, -1, 1, 2),

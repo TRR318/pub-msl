@@ -9,6 +9,8 @@ class ResultHandler:
     def __init__(self, dir="../results"):
         self.dir = Path(dir)
 
+        self.dir.mkdir(parents=True, exist_ok=True)
+
     def write_results(self, key, result):
         multikey = self._to_dict(key, repeat=len(result))
 
