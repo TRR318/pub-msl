@@ -15,7 +15,7 @@ from skpsl import ProbabilisticScoringList
 from skpsl.preprocessing.binarizer import MinEntropyBinarizer
 from skpsl.metrics import expected_entropy_loss, weighted_loss, soft_ranking_loss
 
-RESULTFOLDER = "../results"
+RESULTFOLDER = "results"
 DATAFOLDER = "data"
 
 
@@ -47,16 +47,14 @@ def estimator_factory(param):
 
 def worker_facory():
     rh = ResultHandler(RESULTFOLDER)
-    scoring = dict(
-        acc=get_scorer("accuracy"),
-        bacc=get_scorer("balanced_accuracy"),
-        roc=get_scorer("roc_auc"),
-        brier=get_scorer("neg_brier_score"),
-        ent=make_scorer(
-            lambda _, pred: expected_entropy_loss(pred), response_method="predict_proba"
-        ),
-        wloss=make_scorer(weighted_loss, response_method="predict_proba"),
-    )
+
+    # all scorers that can be run on training and test independendly
+    scoring = dict(acc=get_scorer("accuracy"),
+                   bacc=get_scorer("balanced_accuracy"),
+                   roc=get_scorer("roc_auc"),
+                   brier=get_scorer("neg_brier_score"),
+                   ent=make_scorer(lambda _, pred: expected_entropy_loss(pred), response_method="predict_proba")
+                   )
 
     @delayed
     @wrap_non_picklable_objects
@@ -92,36 +90,34 @@ def worker_facory():
         psl = est[-1]
 
         results = pd.DataFrame(results).to_dict("records")
+        results[0]["train_wloss"], thresh = weighted_loss(y_train, psl.predict_proba(X_train)[:, 1],
+                                                          return_threshold=True)
+        results[0]["test_wloss"] = weighted_loss(y_train, psl.predict_proba(X_train)[:, 1], threshold=thresh)
+
         for k, stage in enumerate(psl):
             cur_results = (
-                {
-                    f"train_{name}": scorer(stage, X_train, y_train)
-                    for name, scorer in scoring.items()
-                }
-                | {
-                    f"test_{name}": scorer(stage, X_test, y_test)
-                    for name, scorer in scoring.items()
-                }
-                | dict(stage=k)
-            )
+                    {f"train_{name}": scorer(stage, X_train, y_train) for name, scorer in scoring.items()} |
+                    {f"test_{name}": scorer(stage, X_test, y_test) for name, scorer in scoring.items()} |
+                    dict(stage=k))
             results.append(cur_results)
 
-            if k > 0:
+            if k == 0:
+                # add performance of stage clf in to mimic performance of logreg at stage 0 (majority classifier)
+                cur_results = (
+                        {f"train_{name}": scorer(stage, X_train, y_train) for name, scorer in scoring.items()} |
+                        {f"test_{name}": scorer(stage, X_test, y_test) for name, scorer in scoring.items()} |
+                        dict(stage=k) |
+                        dict(clf_variant="logreg"))
+                results.append(cur_results)
+            else:
                 X_train_ = X_train[:, stage.features]
                 X_test_ = X_test[:, stage.features]
                 logreg = LogisticRegression(max_iter=10000).fit(X_train_, y_train)
                 cur_results = (
-                    {
-                        f"train_{name}": scorer(logreg, X_train_, y_train)
-                        for name, scorer in scoring.items()
-                    }
-                    | {
-                        f"test_{name}": scorer(logreg, X_test_, y_test)
-                        for name, scorer in scoring.items()
-                    }
-                    | dict(stage=k)
-                    | dict(clf_variant="logreg")
-                )
+                        {f"train_{name}": scorer(logreg, X_train_, y_train) for name, scorer in scoring.items()} |
+                        {f"test_{name}": scorer(logreg, X_test_, y_test) for name, scorer in scoring.items()} |
+                        dict(stage=k) |
+                        dict(clf_variant="logreg"))
                 results.append(cur_results)
         rh.write_results(key, results)
 
@@ -141,43 +137,27 @@ if __name__ == "__main__":
     rh = ResultHandler(RESULTFOLDER)
     rh.clean()
 
-    base = dict(
-        score_set=[(-3, -2, -1, 1, 2, 3)],
-        lookahead=[1],
-        method=["bisect"],
-        stage_clf_params=[("calibration_method", "isotonic")],
-    )
+    base = dict(score_set=[(-3, -2, -1, 1, 2, 3)], lookahead=[1], method=["bisect"],
+                stage_clf_params=[("calibration_method", "isotonic")])
 
     # create searchspace
     clf_params = chain(
-        dict_product(prefix="psl_prebin", d=base | dict(method=["bisect", "brute"])),
-        dict_product(prefix="psl", d=base | dict(method=["bisect", "brute"])),
+        dict_product(
+            prefix="psl_prebin", d=base | dict(method=["bisect", "brute"])
+        ),
+        dict_product(
+            prefix="psl", d=base | dict(method=["bisect", "brute"])
+        ),
         dict_product(
             prefix="psl",
-            d=base
-            | dict(
-                stage_clf_params=[
-                    ("calibration_method", "isotonic"),
-                    ("calibration_method", "beta"),
-                ]
-            ),
+            d=base | dict(stage_clf_params=[("calibration_method", "isotonic"), ("calibration_method", "beta")])
         ),
         # dict_product(
         #   prefix="psl", d=base | dict(lookahead=[1, 2])
         # ),
         dict_product(
             prefix="psl_prebin",
-            d=base
-            | dict(
-                score_set=[
-                    (-3, -2, -1),
-                    (-2, -1),
-                    (1,),
-                    (1, 2),
-                    (1, 2, 3),
-                    (-3, -2, -1, 1, 2, 3),
-                ]
-            ),
+            d=base | dict(score_set=[(-3, -2, -1), (-2, -1), (1,), (1, 2), (1, 2, 3), (-3, -2, -1, 1, 2, 3)])
         ),
         dict_product(
             prefix="psl",
