@@ -62,7 +62,7 @@ for i, ax in enumerate(axes):
     ax.xaxis.set_major_locator(MaxNLocator(integer=True))
     if i == 0:
         ax.set_ylabel(r"$\hat{q}$")
-    ax.set_xlabel(f"T(x) at Stage {i+1}")
+    ax.set_xlabel(f"$T(\mathbf{{x}})$ at Stage {i+1}")
 fig.legend(loc="upper center", ncol=3, bbox_to_anchor=(0.5, 0), frameon=False)
 plt.show()
 fig.savefig("fig/uncertainty quantification.pdf", bbox_inches="tight")
