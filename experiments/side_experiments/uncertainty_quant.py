@@ -8,23 +8,19 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 from scipy.stats import beta
 
-# for each stage create one plot
-# for each total score, we estimate a probability and a upper and lower conficence bound
-# the bounds are shown in the plot
+# fit psl and get a instance of the calibrator
+X, y = DataLoader("data").load("thorax")
+psl = ProbabilisticScoringList({-3, -2, -1, 1, 2, 3}).fit(X, y)
+calibrator = psl[1].calibrator  # type: IsotonicRegression
+
+
 sns.set_theme(font_scale=1.5, rc={"text.usetex": True})
 sns.set_style("whitegrid")
 plt.rc("font", **{"family": "serif"})
 plt.rcParams["figure.figsize"] = (18, 5)
 
-X, y = DataLoader("data").load("thorax")
-score_set = {-3, -2, -1, 1, 2, 3}
-
-psl = ProbabilisticScoringList(score_set).fit(X, y)
-calibrator = psl[1].calibrator  # type: IsotonicRegression
-
-
 fig, axes = plt.subplots(1, 4, sharey=True, width_ratios=[3, 5, 7, 8])
-plt.tight_layout(w_pad=0.05)
+plt.tight_layout(w_pad=0)
 
 for i, ax in enumerate(axes):
     scores = psl[i + 1]._compute_total_scores(
@@ -36,22 +32,20 @@ for i, ax in enumerate(axes):
     # https://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval#Clopper%E2%80%93Pearson_interval
     ls, us = [], []
     for i_ in sigma:
-
         c = {0: 0, 1: 0} | {
             c_: count
             for c_, count in zip(
                 *np.unique(y[scores.squeeze() == i_], return_counts=True)
             )
         }
-        pos = c[1]
-        neg = c[0]
+        neg, pos = c[0], c[1]
 
-        a = 0.025
         # 95% binomial proportion ci bounds
+        a = 0.025
         l, u = beta.ppf([a, 1 - a], [pos, pos + 1], [neg + 1, neg])
         p = calibrator.transform([i_])
         # make sure the bounds are sensible wrt. proba estimate
-        ls.append(min(np.nan_to_num(l, nan =0), p))
+        ls.append(min(np.nan_to_num(l, nan=0), p))
         us.append(max(np.nan_to_num(u, nan=1), p))
 
     # make sure the bounds are monotonic in the scoreset
@@ -65,7 +59,7 @@ for i, ax in enumerate(axes):
     )
     ax.scatter(sigma, ls, c="b", marker="_")
     ax.scatter(sigma, us, c="b", marker="_")
-    ax.xaxis.set_major_locator(MaxNLocator(integer=True, min_n_ticks=1))
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
     if i == 0:
         ax.set_ylabel(r"$\hat{q}$")
     ax.set_xlabel(f"T(x) at Stage {i+1}")

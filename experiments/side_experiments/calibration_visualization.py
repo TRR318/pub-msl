@@ -6,29 +6,23 @@ from matplotlib.ticker import MaxNLocator
 import numpy as np
 import seaborn as sns
 
-RESULTFOLDER = "results"
-DATAFOLDER = "data"
-
-sns.set(font_scale=1.5, rc={"text.usetex": True})
-sns.set_style("whitegrid")
-plt.rc("font", **{"family": "serif"})
-plt.rcParams["figure.figsize"] = (18, 5)
-
-X, y = DataLoader(DATAFOLDER).load("thorax")
-score_set = {-3, -2, -1, 1, 2, 3}
+X, y = DataLoader("data").load("thorax")
 
 calibrators = dict()
 for variant in ["isotonic", "beta"]:
     psl = ProbabilisticScoringList(
-        score_set, stage_clf_params=dict(calibration_method=variant)
-    )
-    psl.fit(X, y)
+        {-3, -2, -1, 1, 2, 3}, stage_clf_params=dict(calibration_method=variant)
+    ).fit(X, y)
     calibrators[variant] = psl[-1].calibrator
 
 
 scores = psl[-1]._compute_total_scores(X, psl.features, psl.scores, psl.thresholds)
 probas = calibrators["isotonic"].fit_transform(scores, y)
 
+sns.set_theme(font_scale=1.5, rc={"text.usetex": True})
+sns.set_style("whitegrid")
+plt.rc("font", **{"family": "serif"})
+plt.rcParams["figure.figsize"] = (18, 5)
 fig, ax = plt.subplots()
 
 a, c = np.unique([scores.squeeze(), y], axis=1, return_counts=True)
