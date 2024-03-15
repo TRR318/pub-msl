@@ -40,9 +40,9 @@ for i, ax in enumerate(axes):
         }
         neg, pos = c[0], c[1]
 
-        # 95% binomial proportion ci bounds
-        a = 0.025
-        l, u = beta.ppf([a, 1 - a], [pos, pos + 1], [neg + 1, neg])
+        # 95% binomial proportion ci bounds, scaled by bonferoni correction
+        a = 0.05/len(sigma)
+        l, u = beta.ppf([a/2, 1 - a/2], [pos, pos + 1], [neg + 1, neg])
         p = calibrator.transform([i_])
         # make sure the bounds are sensible wrt. proba estimate
         ls.append(min(np.nan_to_num(l, nan=0), p))
@@ -52,13 +52,13 @@ for i, ax in enumerate(axes):
     ls = [max(a, b) for a, b in zip([0] + ls, ls)]
     us = list(reversed([min(a, b) for a, b in list(zip([1] + us[::-1], us[::-1]))]))
 
-    ax.scatter(
+    ps = calibrator.transform(sigma)
+    ax.errorbar(
         sigma,
-        calibrator.transform(sigma),
-        label="Isotonic Regression" if i == 0 else None,
+        ps,
+        np.abs(np.array([ls,us])-ps),  fmt='o', linewidth=2, capsize=6,
+        label="Isotonic Regression with 95\%    confidence interval" if i == 0 else None,
     )
-    ax.scatter(sigma, ls, c="b", marker="_")
-    ax.scatter(sigma, us, c="b", marker="_")
     ax.xaxis.set_major_locator(MaxNLocator(integer=True))
     if i == 0:
         ax.set_ylabel(r"$\hat{q}$")
