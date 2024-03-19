@@ -19,14 +19,11 @@ sns.set_style("whitegrid")
 plt.rc("font", **{"family": "serif"})
 plt.rcParams["figure.figsize"] = (18, 5)
 
-fig, axes = plt.subplots(1, 4, sharey=True, width_ratios=[3, 5, 7, 8])
-plt.tight_layout(w_pad=0)
-
-for i, ax in enumerate(axes):
+def plot_ci(i,ax, add_label=False):
     scores = psl[i + 1]._compute_total_scores(
         X, psl.features[: i + 1], psl.scores[: i + 1], psl.thresholds[: i + 1]
     )
-    probas = calibrator.fit_transform(scores, y)
+    calibrator.fit(scores, y)
     sigma = np.unique(scores)
 
     # https://en.wikipedia.org/wiki/Binomial_proportion_confidence_interval#Clopper%E2%80%93Pearson_interval
@@ -49,20 +46,37 @@ for i, ax in enumerate(axes):
         us.append(max(np.nan_to_num(u, nan=1), p))
 
     # make sure the bounds are monotonic in the scoreset
-    ls = [max(a, b) for a, b in zip([0] + ls, ls)]
-    us = list(reversed([min(a, b) for a, b in list(zip([1] + us[::-1], us[::-1]))]))
+    ls = [max([l] + ls[:i]) for i, l in enumerate(ls)]
+    us = [min([u] + us[i:]) for i, u in enumerate(us)]
 
     ps = calibrator.transform(sigma)
     ax.errorbar(
         sigma,
         ps,
         np.abs(np.array([ls,us])-ps),  fmt='o', linewidth=2, capsize=6,
-        label="Isotonic Regression with 95\%    confidence interval" if i == 0 else None,
+        label="Isotonic Regression with 95\% confidence interval" if i == 0 or add_label else None,
     )
     ax.xaxis.set_major_locator(MaxNLocator(integer=True))
     if i == 0:
         ax.set_ylabel(r"$\hat{q}$")
     ax.set_xlabel(f"$T(\mathbf{{x}})$ at Stage {i+1}")
-fig.legend(loc="upper center", ncol=3, bbox_to_anchor=(0.5, 0), frameon=False)
+
+
+fig, axes = plt.subplots(1, 4, sharey=True, width_ratios=[3, 5, 7, 8])
+plt.tight_layout(w_pad=0)
+
+for i, ax in enumerate(axes):
+    plot_ci(i,ax)    
+fig.legend(loc="upper center", ncol=1, bbox_to_anchor=(0.5, 0), frameon=False)
 plt.show()
 fig.savefig("fig/uncertainty quantification.pdf", bbox_inches="tight")
+
+for i in range(4,10):
+    fig, ax = plt.subplots()
+    plt.tight_layout(w_pad=0)
+
+    plot_ci(i,ax, add_label=True)    
+    fig.legend(loc="upper center", ncol=1, bbox_to_anchor=(0.5, 0), frameon=False)
+    plt.show()
+    if i == 6:
+        fig.savefig("fig/uncertainty quantification_stage6.pdf", bbox_inches="tight")
