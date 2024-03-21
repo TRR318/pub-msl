@@ -17,4 +17,4 @@ if __name__ == '__main__':
         PrecisionRecallDisplay.from_estimator(clf[i], xtest, ytest, ax=ax, label=None)
 
     plt.plot()
-    plt.savefig(f"../fig/precrec_curve_iso.png")
+    plt.savefig(f"fig/precrec_curve_iso.png")

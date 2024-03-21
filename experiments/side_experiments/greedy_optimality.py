@@ -11,13 +11,10 @@ from joblib import Parallel, delayed
 from skpsl.estimators import ProbabilisticScoringSystem, ProbabilisticScoringList
 from experiments.util import DataLoader
 
-RESULTFOLDER = "results"
-DATAFOLDER = "../data"
 scoreset = [0, 1, 2]
-dataset = "thorax"
+dataset = "thorax_filtered"
 
-X, y = DataLoader(DATAFOLDER).load(dataset)
-
+X, y = DataLoader("data").load(dataset)
 wpos = y.mean()
 
 
@@ -42,12 +39,11 @@ G = nx.Graph()
 node = dict()
 
 for scores, result in tqdm(
-    Parallel(n_jobs=12, return_as="generator")(
-        fit_predict(scores_) for scores_ in product(scoreset, repeat=X.shape[1])
-    ),
-    total=len(scoreset) ** X.shape[1],
+        Parallel(n_jobs=12, return_as="generator")(
+            fit_predict(scores_) for scores_ in product(scoreset, repeat=X.shape[1])
+        ),
+        total=len(scoreset) ** X.shape[1],
 ):
-
     id_ = np.count_nonzero(scores), round(result, 3)
     node[tuple(scores)] = id_
 
@@ -94,4 +90,4 @@ print("generating file")
 fig.suptitle("Coronary Heart Disease")
 # plt.show()
 
-fig.savefig(f"../../fig/{dataset}_greedy_search.pdf", bbox_inches="tight")
+fig.savefig(f"fig/{dataset}_greedy_search.pdf", bbox_inches="tight")

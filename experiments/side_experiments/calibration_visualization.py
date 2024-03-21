@@ -1,12 +1,12 @@
+import matplotlib.pyplot as plt
+import numpy as np
+import seaborn as sns
+from matplotlib.ticker import MaxNLocator
 from skpsl import ProbabilisticScoringList
 
 from experiments.util import DataLoader
-import matplotlib.pyplot as plt
-from matplotlib.ticker import MaxNLocator
-import numpy as np
-import seaborn as sns
 
-X, y = DataLoader("data").load("thorax")
+X, y = DataLoader("data").load("thorax_filtered")
 
 calibrators = dict()
 for variant in ["isotonic", "beta"]:
