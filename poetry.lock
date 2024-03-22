@@ -212,7 +212,7 @@ scikit-learn = "*"
 type = "git"
 url = "http://github.com/stheid/scikit-betacal"
 reference = "feature/made-logreg-regularization-configurable"
-resolved_reference = "9bd22e59d01cbaa7744471d333a6889f5987d5b4"
+resolved_reference = "5eab7eb98e1f9d4e47e5bacdc9cd998f5d65adda"
 
 [[package]]
 name = "bleach"
