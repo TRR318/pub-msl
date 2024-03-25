@@ -65,9 +65,11 @@ ax.set_ylabel("Expected Entropy")
 ax.set_xlabel("Stage")
 
 print("drawing edges")
-nx.draw_networkx_edges(
-    G, pos, edge_color="#000000", ax=ax, width=0.5, node_size=0, alpha=0.1
+edges = nx.draw_networkx_edges(
+    G, pos, edge_color="#a7bad8", ax=ax, width=0.5, node_size=0, alpha=.1
 )
+edges.set_zorder(0)
+plt.grid(alpha=.2, c="black")
 
 # highlight cascade
 print("fitting cascade")
