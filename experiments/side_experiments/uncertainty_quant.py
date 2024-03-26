@@ -38,7 +38,7 @@ def plot_ci(i, ax, hide_label=False, legend=True):
         np.abs(np.array([ls, us]) - ps), fmt='o', linewidth=2, capsize=6,
         label="Isotonic Regression with 95\% confidence interval" if not hide_label and legend else None,
     )
-    ax.axhline(y=1/11, color='black', linestyle=':')
+    ax.axhline(y=1/11, color='black', linestyle=':', label=None if hide_label or not legend else "Decision boundary for $M=10$")
     ax.xaxis.set_major_locator(MaxNLocator(integer=True))
     if not hide_label:
         ax.set_ylabel(r"$\hat{q}$")
@@ -47,6 +47,7 @@ def plot_ci(i, ax, hide_label=False, legend=True):
 
 fig = plt.figure(tight_layout=True)
 gs = gridspec.GridSpec(2, 4, width_ratios=[3, 5, 7, 8])
+fig.suptitle("Coronary Heart Disease")
 
 ax0 = None
 for i in range(4):
@@ -58,7 +59,10 @@ for i in range(4):
     plot_ci(i, ax, hide_label=i > 0, legend=False)
 ax = fig.add_subplot(gs[1, :], sharey=ax0)
 plot_ci(6, ax)
-fig.legend(loc="upper center", ncol=1, bbox_to_anchor=(0.5, 0), frameon=False)
+h,l = plt.gca().get_legend_handles_labels()
+h = [h[1], h[0]]
+l = [l[1], l[0]]
+fig.legend(h,l,loc="upper center", ncol=2, bbox_to_anchor=(0.5, 0), frameon=False)
 
 plt.show()
 fig.savefig("fig/uncertainty quantification.pdf", bbox_inches="tight")
@@ -69,5 +73,5 @@ for i in range(4, 10):
     plt.tight_layout(w_pad=0)
 
     plot_ci(i, ax)
-    fig.legend(loc="upper center", ncol=1, bbox_to_anchor=(0.5, 0), frameon=False)
+    fig.legend(loc="upper center", ncol=2, bbox_to_anchor=(0.5, 0), frameon=False)
     plt.show()
