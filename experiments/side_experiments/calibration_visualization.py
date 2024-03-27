@@ -2,11 +2,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 from matplotlib.ticker import MaxNLocator
+from sklearn.impute import SimpleImputer
 from skpsl import ProbabilisticScoringList
 
 from experiments.util import DataLoader
 
-X, y = DataLoader("data").load("thorax_filtered")
+X, y = DataLoader("data").load("thorax")
+X = SimpleImputer(missing_values=-1, strategy="most_frequent").fit_transform(X, y)
 
 calibrators = dict()
 for variant in ["isotonic", "beta"]:
@@ -22,11 +24,11 @@ probas = calibrators["isotonic"].fit_transform(scores, y)
 sns.set_theme(font_scale=1.5, rc={"text.usetex": True})
 sns.set_style("whitegrid")
 plt.rc("font", **{"family": "serif"})
-plt.rcParams["figure.figsize"] = (18, 5)
+plt.rcParams["figure.figsize"] = (15, 4)
 fig, ax = plt.subplots()
 
 a, c = np.unique([scores.squeeze(), y], axis=1, return_counts=True)
-per_line = 13
+per_line = 23
 lines = c.max() // per_line + 1
 offset = np.array(
     [
@@ -36,7 +38,7 @@ offset = np.array(
 )
 sorting = np.argsort([1, 1.1] @ np.abs(offset))
 offset = offset[:, sorting]
-offset *= [[0.42], [0.08]]
+offset *= [[0.4], [0.09 ]]
 offset += [[0],[0.01]]
 X_shift = np.array(
     [
@@ -46,7 +48,7 @@ X_shift = np.array(
     ]
 )
 
-ax.scatter(*X_shift.T, s=5, c="gray", label="Datapoints")
+ax.scatter(*X_shift.T, s=2, c="gray", label="Datapoints")
 # d = np.array([scores.squeeze(),y*1.04-.02], dtype=float)
 # d+= np.array([np.random.uniform(-.35,.35, d.shape[1]), np.random.uniform(-.02,.02, d.shape[1])])
 # ax.scatter(*d, s=5)
