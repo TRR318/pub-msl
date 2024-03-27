@@ -1,7 +1,7 @@
 from skpsl import ProbabilisticScoringList
 from experiments.util import DataLoader
 
-X, y = DataLoader("data").load("thorax_filtered")
+X, y = DataLoader("data").load("42900")
 psl = ProbabilisticScoringList({-3, -2, -1, 1, 2,3}).fit(X, y)
 
 df = psl.inspect(4).iloc[:, 1:]

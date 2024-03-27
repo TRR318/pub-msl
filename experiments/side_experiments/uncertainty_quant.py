@@ -13,15 +13,13 @@ from experiments.util import DataLoader
 # fit psl and get a instance of the calibrator
 X, y = DataLoader("data").load("thorax")
 X, X_test, y, _ = train_test_split(X, y, test_size=1 / 3, random_state=4)
-pipeline = make_pipeline(
-    SimpleImputer(missing_values=-1, strategy="most_frequent"),
-    ProbabilisticScoringList({-3, -2, -1, 1, 2, 3}).fit(X, y),
-)
+pipeline = make_pipeline(SimpleImputer(missing_values=-1, strategy="most_frequent"),
+                         ProbabilisticScoringList({-3, -2, -1, 1, 2, 3}).fit(X, y))
 
 sns.set_theme(font_scale=1.5, rc={"text.usetex": True})
 sns.set_style("whitegrid")
 plt.rc("font", **{"family": "serif"})
-plt.rcParams["figure.figsize"] = (15, 7)
+plt.rcParams["figure.figsize"] = (16, 7.5)
 
 
 def plot_ci(i, ax, hide_label=False, legend=True):
@@ -32,27 +30,15 @@ def plot_ci(i, ax, hide_label=False, legend=True):
     )
     sigma, idxs = np.unique(scores, return_index=True)
 
-    ls, ps, us = stage.predict_proba(X_test[idxs], ci=0.5).T
+    ls, ps, us = stage.predict_proba(X_test[idxs], ci=.5).T
 
     ax.errorbar(
         sigma,
         ps,
-        np.abs(np.array([ls, us]) - ps),
-        fmt="o",
-        linewidth=2,
-        capsize=6,
-        label=(
-            "Isotonic Regression with 95\% confidence interval"
-            if not hide_label and legend
-            else None
-        ),
+        np.abs(np.array([ls, us]) - ps), fmt='o', linewidth=2, capsize=6,
+        label="Isotonic Regression with 95\% confidence interval" if not hide_label and legend else None,
     )
-    ax.axhline(
-        y=1 / 11,
-        color="black",
-        linestyle=":",
-        label=None if hide_label or not legend else "Decision boundary for $M=10$",
-    )
+    ax.axhline(y=1/11, color='black', linestyle=':', label=None if hide_label or not legend else "Decision boundary for $M=10$")
     ax.xaxis.set_major_locator(MaxNLocator(integer=True))
     if not hide_label:
         ax.set_ylabel(r"$\hat{q}$")
@@ -60,7 +46,7 @@ def plot_ci(i, ax, hide_label=False, legend=True):
 
 
 fig = plt.figure(tight_layout=True)
-gs = gridspec.GridSpec(2, 4, width_ratios=[3, 5, 7, 8])
+gs = gridspec.GridSpec(2, 4, width_ratios=[4, 6, 7, 10])
 fig.suptitle("Coronary Heart Disease")
 
 ax0 = None
