@@ -196,25 +196,6 @@ html5lib = ["html5lib"]
 lxml = ["lxml"]
 
 [[package]]
-name = "betacal"
-version = "1.1.0"
-description = "Beta calibration"
-optional = false
-python-versions = "*"
-files = []
-develop = false
-
-[package.dependencies]
-numpy = "*"
-scikit-learn = "*"
-
-[package.source]
-type = "git"
-url = "http://github.com/stheid/scikit-betacal"
-reference = "feature/made-logreg-regularization-configurable"
-resolved_reference = "5eab7eb98e1f9d4e47e5bacdc9cd998f5d65adda"
-
-[[package]]
 name = "bleach"
 version = "6.1.0"
 description = "An easy safelist-based HTML-sanitizing tool."
@@ -1508,13 +1489,13 @@ test = ["flaky", "ipykernel (>=6.19.3)", "ipython", "ipywidgets", "nbconvert (>=
 
 [[package]]
 name = "nbconvert"
-version = "7.16.2"
+version = "7.16.3"
 description = "Converting Jupyter Notebooks (.ipynb files) to other formats.  Output formats include asciidoc, html, latex, markdown, pdf, py, rst, script.  nbconvert can be used both as a Python library (`import nbconvert`) or as a command line tool (invoked as `jupyter nbconvert ...`)."
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "nbconvert-7.16.2-py3-none-any.whl", hash = "sha256:0c01c23981a8de0220255706822c40b751438e32467d6a686e26be08ba784382"},
-    {file = "nbconvert-7.16.2.tar.gz", hash = "sha256:8310edd41e1c43947e4ecf16614c61469ebc024898eb808cce0999860fc9fb16"},
+    {file = "nbconvert-7.16.3-py3-none-any.whl", hash = "sha256:ddeff14beeeedf3dd0bc506623e41e4507e551736de59df69a91f86700292b3b"},
+    {file = "nbconvert-7.16.3.tar.gz", hash = "sha256:a6733b78ce3d47c3f85e504998495b07e6ea9cf9bf6ec1c98dda63ec6ad19142"},
 ]
 
 [package.dependencies]
@@ -1540,7 +1521,7 @@ docs = ["ipykernel", "ipython", "myst-parser", "nbsphinx (>=0.2.12)", "pydata-sp
 qtpdf = ["nbconvert[qtpng]"]
 qtpng = ["pyqtwebengine (>=5.15)"]
 serve = ["tornado (>=6.1)"]
-test = ["flaky", "ipykernel", "ipywidgets (>=7.5)", "pytest"]
+test = ["flaky", "ipykernel", "ipywidgets (>=7.5)", "pytest (>=7)"]
 webpdf = ["playwright"]
 
 [[package]]
@@ -2528,27 +2509,22 @@ tests = ["black (>=23.3.0)", "matplotlib (>=3.3.4)", "mypy (>=1.3)", "numpydoc (
 
 [[package]]
 name = "scikit-psl"
-version = "0.6.3"
+version = "0.7.0"
 description = "Probabilistic Scoring List classifier"
 optional = false
-python-versions = ">=3.10,<3.13"
-files = []
-develop = false
+python-versions = "<3.13,>=3.10"
+files = [
+    {file = "scikit_psl-0.7.0-py3-none-any.whl", hash = "sha256:baf27128a9a959ce29ecee5e21fd4c2c8696a718c4caab83956c9d4f11b58ce0"},
+    {file = "scikit_psl-0.7.0.tar.gz", hash = "sha256:33b0cca0e926f371520b5c3c352a27d02db9861c0c1549abab740db6a5cec413"},
+]
 
 [package.dependencies]
-betacal = {git = "http://github.com/stheid/scikit-betacal", branch = "feature/made-logreg-regularization-configurable"}
-joblib = "^1.3.2"
-numpy = "^1.25.2"
-pandas = "^2.1.0"
-scikit-learn = "^1.3.0"
-scipy = "^1.11.2"
-sortedcontainers = "^2.4.0"
-
-[package.source]
-type = "git"
-url = "http://github.com/trr318/scikit-psl"
-reference = "feature/return-ci-probas"
-resolved_reference = "b974c75a2722358cf44b64fd461c9e8c1e042efe"
+joblib = ">=1.3.2,<2.0.0"
+numpy = ">=1.25.2,<2.0.0"
+pandas = ">=2.1.0,<3.0.0"
+scikit-learn = ">=1.3.0,<2.0.0"
+scipy = ">=1.11.2,<2.0.0"
+sortedcontainers = ">=2.4.0,<3.0.0"
 
 [[package]]
 name = "scipy"
@@ -2939,4 +2915,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.10,<3.13"
-content-hash = "22b11cd0516e6f1f3f6e7f82d27d3f969471c8f4d5106f4653e8fc609e087030"
+content-hash = "fb6c865fbdab2002b51d20a8348876a644d5dcce3db0b26f3ad06a5b43c8836c"
