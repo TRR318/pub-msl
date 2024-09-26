@@ -1,5 +1,6 @@
 from inspect import getfullargspec, signature
 from itertools import product, chain
+import gc
 
 import pandas as pd
 from joblib import delayed, wrap_non_picklable_objects, Parallel
@@ -189,6 +190,7 @@ def worker_facory():
                     X_train_ = X_train[:, stage.features]
                     X_test_ = X_test[:, stage.features]
                     if name == "xgboost":
+                        pass
                         clf_pipeline = make_pipeline(
                             SimpleImputer(missing_values=-1, strategy="most_frequent"),
                             xgb.XGBClassifier(),
@@ -213,6 +215,8 @@ def worker_facory():
                         | dict(stage=k)
                         | dict(clf_variant=name)
                     )
+                    del clf_pipeline
+                    gc.collect()
                     results.append(cur_results)
         rh.write_results(key, results)
 
@@ -228,7 +232,7 @@ def dict_product(prefix, d):
 if __name__ == "__main__":
     # datasets = ["thorax", 41945, 42900]
     datasets = ["cali_housing_binary", "ACSIncome"]
-    datasets = ["ACSIncome"]
+    # datasets = ["ACSIncome"]
     splits = 100
 
     rh = ResultHandler(RESULTFOLDER)
@@ -307,7 +311,7 @@ if __name__ == "__main__":
     worker = worker_facory()
     list(
         tqdm(
-            Parallel(n_jobs=2, return_as="generator_unordered")(
+            Parallel(n_jobs=4, return_as="generator_unordered")(
                 worker(fold, dataset, params) for fold, dataset, params in grid
             ),
             total=len(grid),
