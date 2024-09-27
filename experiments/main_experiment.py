@@ -251,7 +251,7 @@ if __name__ == "__main__":
         stage_clf_params=[("calibration_method", "isotonic")],
     )
 
-    # create searchspace
+    # original parameter space
     clf_params_orig = chain(
         dict_product(prefix="psl_prebin", d=base | dict(method=["bisect", "brute"])),
         dict_product(prefix="psl", d=base | dict(method=["bisect", "brute"])),
@@ -280,6 +280,21 @@ if __name__ == "__main__":
             ),
         ),
         dict_product(
+            prefix="psl_prebin",
+            d=base
+            | dict(
+                score_set=[
+                    (-3, -2, -1),
+                    (-2, -1),
+                    (1,),
+                    (1, 2),
+                    (1, 2, 3),
+                    (-3, -2, -1, 1, 2, 3),
+                    tuple(list(range(-50, 0)) + list(range(1, 51))),
+                ]
+            ),
+        ),
+        dict_product(
             prefix="psl",
             d=base
             | dict(
@@ -291,6 +306,7 @@ if __name__ == "__main__":
                 ]
             ),
         ),
+        dict_product(prefix="psl", d=base | dict(stage_loss=[soft_ranking_loss])),
     )
 
     # additional configs for rebuttal with larger datasets
@@ -332,7 +348,6 @@ if __name__ == "__main__":
                 ]
             ),
         ),
-        dict_product(prefix="psl", d=base | dict(stage_loss=[soft_ranking_loss])),
     )
 
     grid = list(
@@ -352,7 +367,7 @@ if __name__ == "__main__":
     worker = worker_facory()
     list(
         tqdm(
-            Parallel(n_jobs=10, return_as="generator_unordered")(
+            Parallel(n_jobs=12, return_as="generator_unordered")(
                 worker(fold, dataset, params) for fold, dataset, params in grid
             ),
             total=len(grid),
