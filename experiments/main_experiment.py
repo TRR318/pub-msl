@@ -123,7 +123,6 @@ def worker_facory():
         rh.register_run(key)
 
         X, y = DataLoader(DATAFOLDER).load(dataset)
-        print(y)
         clf = estimator_factory(params)
         results = cross_validate(
             clf,
@@ -194,17 +193,19 @@ def worker_facory():
                     if name == "xgboost":
                         clf_pipeline = make_pipeline(
                             SimpleImputer(missing_values=-1, strategy="most_frequent"),
-                            xgb.XGBClassifier(),
+                            xgb.XGBClassifier(n_jobs=1),
                         ).fit(X_train_, y_train)
                     elif name == "random_forest":
                         clf_pipeline = make_pipeline(
                             SimpleImputer(missing_values=-1, strategy="most_frequent"),
-                            RandomForestClassifier(),
+                            RandomForestClassifier(n_jobs=1),
                         ).fit(X_train_, y_train)
                     else:
                         clf_pipeline = make_pipeline(
                             SimpleImputer(missing_values=-1, strategy="most_frequent"),
-                            LogisticRegression(max_iter=10000, penalty=penalty),
+                            LogisticRegression(
+                                max_iter=10000, penalty=penalty, n_jobs=1
+                            ),
                         ).fit(X_train_, y_train)
                     cur_results = (
                         {
@@ -236,10 +237,9 @@ def dict_product(prefix, d):
 
 
 if __name__ == "__main__":
-    datasets = ["thorax", 41945, 42900]
-    # datasets = ["cali_housing_binary", "ACSIncome"]
-    # datasets = ["ACSIncome"]
-    splits = 100
+    datasets_orig = ["thorax", 41945, 42900]
+    datasets_new = ["ACSIncome", "cali_housing_binary"]
+    splits = 2
 
     rh = ResultHandler(RESULTFOLDER)
     rh.clean()
@@ -252,75 +252,107 @@ if __name__ == "__main__":
     )
 
     # create searchspace
-    clf_params = chain(
-        # dict_product(prefix="psl_prebin", d=base | dict(method=["bisect", "brute"])),
-        # dict_product(prefix="psl", d=base | dict(method=["bisect", "brute"])),
+    clf_params_orig = chain(
+        dict_product(prefix="psl_prebin", d=base | dict(method=["bisect", "brute"])),
+        dict_product(prefix="psl", d=base | dict(method=["bisect", "brute"])),
+        dict_product(
+            prefix="psl",
+            d=base
+            | dict(
+                stage_clf_params=[
+                    ("calibration_method", "isotonic"),
+                    ("calibration_method", "sigmoid"),
+                    ("calibration_method", "beta"),
+                    ("calibration_method", "beta_reg"),
+                ]
+            ),
+        ),
+        dict_product(
+            prefix="psl_prebin",
+            d=base
+            | dict(
+                stage_clf_params=[
+                    ("calibration_method", "isotonic"),
+                    ("calibration_method", "sigmoid"),
+                    ("calibration_method", "beta"),
+                    ("calibration_method", "beta_reg"),
+                ]
+            ),
+        ),
+        dict_product(
+            prefix="psl",
+            d=base
+            | dict(
+                score_set=[
+                    (-3, -2, -1, 1, 2, 3),
+                    (-2, -1, 1, 2),
+                    (-1, 1),
+                    tuple(list(range(-50, 0)) + list(range(1, 51))),
+                ]
+            ),
+        ),
+    )
+
+    # additional configs for rebuttal with larger datasets
+    clf_params_new = chain(
         dict_product(prefix="psl", d=base | dict(method=["bisect"])),
-        # dict_product(
-        #     prefix="psl",
-        #     d=base
-        #     | dict(
-        #         stage_clf_params=[
-        #             ("calibration_method", "isotonic"),
-        #             ("calibration_method", "sigmoid"),
-        #             ("calibration_method", "beta"),
-        #             ("calibration_method", "beta_reg"),
-        #         ]
-        #     ),
-        # ),
-        # dict_product(
-        #     prefix="psl_prebin",
-        #     d=base
-        #     | dict(
-        #         stage_clf_params=[
-        #             ("calibration_method", "isotonic"),
-        #             ("calibration_method", "sigmoid"),
-        #             ("calibration_method", "beta"),
-        #             ("calibration_method", "beta_reg"),
-        #         ]
-        #     ),
-        # ),
-        # dict_product(
-        #     prefix="psl_prebin",
-        #     d=base
-        #     | dict(
-        #         score_set=[
-        #             (-3, -2, -1),
-        #             (-2, -1),
-        #             (1,),
-        #             (1, 2),
-        #             (1, 2, 3),
-        #             (-3, -2, -1, 1, 2, 3),
-        #             tuple(list(range(-50, 0)) + list(range(1, 51))),
-        #         ]
-        #     ),
-        # ),
-        # dict_product(
-        #     prefix="psl",
-        #     d=base
-        #     | dict(
-        #         score_set=[
-        #             (-3, -2, -1, 1, 2, 3),
-        #             (-2, -1, 1, 2),
-        #             (-1, 1),
-        #             tuple(list(range(-50, 0)) + list(range(1, 51))),
-        #         ]
-        #     ),
-        # ),
-        # dict_product(prefix="psl", d=base | dict(stage_loss=[soft_ranking_loss])),
+        dict_product(
+            prefix="psl",
+            d=base
+            | dict(
+                stage_clf_params=[
+                    ("calibration_method", "isotonic"),
+                    ("calibration_method", "sigmoid"),
+                    ("calibration_method", "beta"),
+                    ("calibration_method", "beta_reg"),
+                ]
+            ),
+        ),
+        dict_product(
+            prefix="psl_prebin",
+            d=base
+            | dict(
+                stage_clf_params=[
+                    ("calibration_method", "isotonic"),
+                    ("calibration_method", "sigmoid"),
+                    ("calibration_method", "beta"),
+                    ("calibration_method", "beta_reg"),
+                ]
+            ),
+        ),
+        dict_product(
+            prefix="psl",
+            d=base
+            | dict(
+                score_set=[
+                    (-3, -2, -1, 1, 2, 3),
+                    (-2, -1, 1, 2),
+                    (-1, 1),
+                    tuple(list(range(-50, 0)) + list(range(1, 51))),
+                ]
+            ),
+        ),
+        dict_product(prefix="psl", d=base | dict(stage_loss=[soft_ranking_loss])),
     )
 
     grid = list(
         filter(
             rh.is_unprocessed,
-            dict.fromkeys(product(range(splits), datasets, clf_params)),
+            dict.fromkeys(product(range(splits), datasets_orig, clf_params_orig)),
+        )
+    )
+
+    grid += list(
+        filter(
+            rh.is_unprocessed,
+            dict.fromkeys(product(range(splits), datasets_new, clf_params_new)),
         )
     )
 
     worker = worker_facory()
     list(
         tqdm(
-            Parallel(n_jobs=1, return_as="generator_unordered")(
+            Parallel(n_jobs=10, return_as="generator_unordered")(
                 worker(fold, dataset, params) for fold, dataset, params in grid
             ),
             total=len(grid),
