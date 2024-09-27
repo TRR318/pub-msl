@@ -6,6 +6,7 @@ import pandas as pd
 from joblib import delayed, wrap_non_picklable_objects, Parallel
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
 import xgboost as xgb
 from sklearn.model_selection import cross_validate, ShuffleSplit
 from sklearn.metrics import (
@@ -26,7 +27,7 @@ from skpsl import ProbabilisticScoringList
 from skpsl.preprocessing.binarizer import MinEntropyBinarizer
 from skpsl.metrics import expected_entropy_loss, weighted_loss, soft_ranking_loss
 
-RESULTFOLDER = "results"
+RESULTFOLDER = "results_rebuttal"
 DATAFOLDER = "data"
 
 
@@ -122,7 +123,7 @@ def worker_facory():
         rh.register_run(key)
 
         X, y = DataLoader(DATAFOLDER).load(dataset)
-
+        print(y)
         clf = estimator_factory(params)
         results = cross_validate(
             clf,
@@ -169,6 +170,7 @@ def worker_facory():
                 ["l2", "logreg"],
                 [None, "logreg_unregularized"],
                 [None, "xgboost"],
+                [None, "random_forest"],
             ]:
                 if k == 0:
                     # add performance of stage clf in to mimic performance of logreg at stage 0 (majority classifier)
@@ -190,10 +192,14 @@ def worker_facory():
                     X_train_ = X_train[:, stage.features]
                     X_test_ = X_test[:, stage.features]
                     if name == "xgboost":
-                        pass
                         clf_pipeline = make_pipeline(
                             SimpleImputer(missing_values=-1, strategy="most_frequent"),
                             xgb.XGBClassifier(),
+                        ).fit(X_train_, y_train)
+                    elif name == "random_forest":
+                        clf_pipeline = make_pipeline(
+                            SimpleImputer(missing_values=-1, strategy="most_frequent"),
+                            RandomForestClassifier(),
                         ).fit(X_train_, y_train)
                     else:
                         clf_pipeline = make_pipeline(
@@ -230,8 +236,8 @@ def dict_product(prefix, d):
 
 
 if __name__ == "__main__":
-    # datasets = ["thorax", 41945, 42900]
-    datasets = ["cali_housing_binary", "ACSIncome"]
+    datasets = ["thorax", 41945, 42900]
+    # datasets = ["cali_housing_binary", "ACSIncome"]
     # datasets = ["ACSIncome"]
     splits = 100
 
@@ -247,58 +253,61 @@ if __name__ == "__main__":
 
     # create searchspace
     clf_params = chain(
-        dict_product(prefix="psl_prebin", d=base | dict(method=["bisect", "brute"])),
-        dict_product(prefix="psl", d=base | dict(method=["bisect", "brute"])),
-        dict_product(
-            prefix="psl",
-            d=base
-            | dict(
-                stage_clf_params=[
-                    ("calibration_method", "isotonic"),
-                    ("calibration_method", "sigmoid"),
-                    ("calibration_method", "beta"),
-                    ("calibration_method", "beta_reg"),
-                ]
-            ),
-        ),
-        dict_product(
-            prefix="psl_prebin",
-            d=base
-            | dict(
-                stage_clf_params=[
-                    ("calibration_method", "isotonic"),
-                    ("calibration_method", "sigmoid"),
-                    ("calibration_method", "beta"),
-                    ("calibration_method", "beta_reg"),
-                ]
-            ),
-        ),
-        dict_product(
-            prefix="psl_prebin",
-            d=base
-            | dict(
-                score_set=[
-                    (-3, -2, -1),
-                    (-2, -1),
-                    (1,),
-                    (1, 2),
-                    (1, 2, 3),
-                    (-3, -2, -1, 1, 2, 3),
-                ]
-            ),
-        ),
-        dict_product(
-            prefix="psl",
-            d=base
-            | dict(
-                score_set=[
-                    (-3, -2, -1, 1, 2, 3),
-                    (-2, -1, 1, 2),
-                    (-1, 1),
-                ]
-            ),
-        ),
-        dict_product(prefix="psl", d=base | dict(stage_loss=[soft_ranking_loss])),
+        # dict_product(prefix="psl_prebin", d=base | dict(method=["bisect", "brute"])),
+        # dict_product(prefix="psl", d=base | dict(method=["bisect", "brute"])),
+        dict_product(prefix="psl", d=base | dict(method=["bisect"])),
+        # dict_product(
+        #     prefix="psl",
+        #     d=base
+        #     | dict(
+        #         stage_clf_params=[
+        #             ("calibration_method", "isotonic"),
+        #             ("calibration_method", "sigmoid"),
+        #             ("calibration_method", "beta"),
+        #             ("calibration_method", "beta_reg"),
+        #         ]
+        #     ),
+        # ),
+        # dict_product(
+        #     prefix="psl_prebin",
+        #     d=base
+        #     | dict(
+        #         stage_clf_params=[
+        #             ("calibration_method", "isotonic"),
+        #             ("calibration_method", "sigmoid"),
+        #             ("calibration_method", "beta"),
+        #             ("calibration_method", "beta_reg"),
+        #         ]
+        #     ),
+        # ),
+        # dict_product(
+        #     prefix="psl_prebin",
+        #     d=base
+        #     | dict(
+        #         score_set=[
+        #             (-3, -2, -1),
+        #             (-2, -1),
+        #             (1,),
+        #             (1, 2),
+        #             (1, 2, 3),
+        #             (-3, -2, -1, 1, 2, 3),
+        #             tuple(list(range(-50, 0)) + list(range(1, 51))),
+        #         ]
+        #     ),
+        # ),
+        # dict_product(
+        #     prefix="psl",
+        #     d=base
+        #     | dict(
+        #         score_set=[
+        #             (-3, -2, -1, 1, 2, 3),
+        #             (-2, -1, 1, 2),
+        #             (-1, 1),
+        #             tuple(list(range(-50, 0)) + list(range(1, 51))),
+        #         ]
+        #     ),
+        # ),
+        # dict_product(prefix="psl", d=base | dict(stage_loss=[soft_ranking_loss])),
     )
 
     grid = list(
@@ -311,7 +320,7 @@ if __name__ == "__main__":
     worker = worker_facory()
     list(
         tqdm(
-            Parallel(n_jobs=4, return_as="generator_unordered")(
+            Parallel(n_jobs=1, return_as="generator_unordered")(
                 worker(fold, dataset, params) for fold, dataset, params in grid
             ),
             total=len(grid),
