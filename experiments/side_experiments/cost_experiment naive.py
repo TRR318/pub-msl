@@ -79,59 +79,12 @@ def expected_loss(y_prob, m=10):
     return loss
 
 
-def calculate_evois(dag, loss=expected_loss, weight_by_bucket_size=False):
-    evois = {}
-    for node in dag.nodes:
-
-        proba = dag.nodes[node]["proba"]
-        current_loss = loss(np.array([[1 - proba, proba]]))
-
-        children = dag.successors(node)
-        successors = nx.single_source_shortest_path_length(dag, node)
-        # largest_dist = max(successors.values())
-        largest_dist = 1
-        node_evois = {}
-        for dist in range(1, largest_dist + 1):
-            succs_at_dist = [k for k, v in successors.items() if int(v) == dist]
-            succ_losses, weights = [], []
-            for succ in succs_at_dist:
-                succ_losses.append(
-                    loss(
-                        np.array(
-                            [
-                                [
-                                    1 - dag.nodes[succ]["proba"],
-                                    dag.nodes[succ]["proba"],
-                                ]
-                            ]
-                        )
-                    )
-                )
-                if weight_by_bucket_size:
-                    weights.append(
-                        dag.nodes[succ]["num_pos"] + dag.nodes[succ]["num_neg"]
-                    )
-                else:
-                    weights.append(1)
-
-            if succ_losses:
-                succ_losses, weights = np.array(succ_losses), np.array(weights)
-                expected_loss_reduction = np.average(
-                    np.full_like(succ_losses, current_loss) - succ_losses,
-                    weights=weights,
-                )
-                node_evois[dist] = expected_loss_reduction / dist
-        evois[node] = node_evois
-    evois = defaultdict(dict, evois)
-    return evois
-
-
 def worker(
     seed,
-    per_instance_budget=2,
+    per_instance_budget=3,
     ci=0.5,
-    voi=0.05,
-    score_set={1, 2, 3},
+    k=0.1,
+    score_set={-3, -2, -1, 1, 2, 3},
 ):
     X, y = DataLoader("../data").load("thorax")
     X_train, X_test, y_train, y_test = train_test_split(
@@ -154,7 +107,6 @@ def worker(
 
     # Instantiate dag for heuristic
     dag = create_dag(psl=psl)
-    evois = calculate_evois(dag)
     y_prob_adaptive = []
     remaining_budget = overall_budget
     imputer = pipeline[0]
@@ -162,40 +114,25 @@ def worker(
 
     X_test = imputer.transform(X_test)
 
+    decision_threshold = 1 / 11
+    wloss_lower_confidence = decision_threshold - decision_threshold * k
+    wloss_upper_confidence = decision_threshold + (1 - decision_threshold) * k
+
     for x_test in X_test:
         x_test = x_test.reshape(1, -1)
         stage = 0
-        current_score = int(
-            psl[stage]
-            ._compute_total_scores(
-                x_test,
-                psl[stage].features,
-                psl[stage].scores_,
-                psl[stage].feature_thresholds,
-            )
-            .item()
-        )
-        current_proba = psl.predict_proba(x_test, k=stage, ci=ci)[0]
+        current_proba = psl.predict_proba(x_test, k=stage, ci=ci).squeeze()
 
         while (
-            any(evoi >= voi for evoi in evois[(stage, current_score)].values())
-            and remaining_budget - stage > 0
+            wloss_lower_confidence
+            < current_proba[2 if ci else 1]
+            < wloss_upper_confidence
+            and remaining_budget > 0
+            and stage + 1 < len(psl)
         ):
             stage += 1
-            current_score = (
-                psl[stage]
-                ._compute_total_scores(
-                    x_test,
-                    psl[stage].features,
-                    psl[stage].scores_,
-                    psl[stage].feature_thresholds,
-                )
-                .item()
-            )
-            current_proba = psl.predict_proba(x_test, k=stage, ci=ci)[0]
-
-        remaining_budget -= stage
-
+            current_proba = psl.predict_proba(x_test, k=stage, ci=ci).squeeze()
+            remaining_budget -= 1
         y_prob_adaptive.append(current_proba)
     y_prob_adaptive = np.stack(y_prob_adaptive)
 
@@ -204,6 +141,8 @@ def worker(
 
     if y_prob_non_adaptive.shape[1] == 3:
         lb, _, ub_non_adap = y_prob_non_adaptive.T
+    else:
+        lb, ub_non_adap = y_prob_non_adaptive.T
     tn_non_adap, fp_non_adap, fn_non_adap, tp_non_adap = confusion_matrix(
         y_test,
         1 - ub_non_adap < 10 * ub_non_adap,
@@ -214,6 +153,9 @@ def worker(
 
     if y_prob_adaptive.shape[1] == 3:
         lb, _, ub_adap = y_prob_adaptive.T
+    else:
+        lb, ub_adap = y_prob_adaptive.T
+
     tn_adap, fp_adap, fn_adap, tp_adap = confusion_matrix(
         y_test,
         1 - ub_adap < 10 * ub_adap,
@@ -235,7 +177,6 @@ def worker(
             overall_budget,
             score_set,
             ci,
-            voi,
             cwloss_adap,
             remaining_budget,
             tp_adap,
@@ -250,7 +191,6 @@ def worker(
             overall_budget,
             score_set,
             ci,
-            voi,
             cwloss_non_adap,
             0,
             tp_non_adap,
@@ -274,7 +214,6 @@ if __name__ == "__main__":
             "overall_budget",
             "score_set",
             "ci",
-            "voi",
             "cwloss",
             "remaining_budget",
             "tp",
@@ -283,4 +222,4 @@ if __name__ == "__main__":
             "tn",
         ],
     )
-    df.to_csv("../results/cost_results.csv")
+    df.to_csv("../results/cost_results_naive.csv")

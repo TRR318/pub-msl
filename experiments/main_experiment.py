@@ -239,7 +239,7 @@ def dict_product(prefix, d):
 if __name__ == "__main__":
     datasets_orig = ["thorax", 41945, 42900]
     datasets_new = ["ACSIncome", "cali_housing_binary"]
-    splits = 2
+    splits = 100
 
     rh = ResultHandler(RESULTFOLDER)
     rh.clean()
