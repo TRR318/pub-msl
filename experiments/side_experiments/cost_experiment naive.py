@@ -83,7 +83,7 @@ def worker(
     seed,
     per_instance_budget=3,
     ci=0.5,
-    k=0.1,
+    k=0.12,
     score_set={-3, -2, -1, 1, 2, 3},
 ):
     X, y = DataLoader("../data").load("thorax")
