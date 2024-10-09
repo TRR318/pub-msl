@@ -1,31 +1,31 @@
-from inspect import getfullargspec, signature
+from functools import reduce
+from inspect import getfullargspec
 from itertools import product, chain
-import gc
+from operator import or_
 
 import pandas as pd
+import xgboost as xgb
 from joblib import delayed, wrap_non_picklable_objects, Parallel
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier
-import xgboost as xgb
-from sklearn.model_selection import cross_validate, ShuffleSplit
 from sklearn.metrics import (
     make_scorer,
     get_scorer,
     confusion_matrix,
     recall_score,
 )
+from sklearn.model_selection import cross_validate, ShuffleSplit
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import FunctionTransformer
+from skpsl import ProbabilisticScoringList
+from skpsl.metrics import expected_entropy_loss, weighted_loss, soft_ranking_loss
+from skpsl.preprocessing.binarizer import MinEntropyBinarizer
 from tqdm import tqdm
-from functools import reduce
-from operator import or_
 
+from src.staged_decision_tree import StagedDecisionTreeClassifier
 from util import DataLoader
 from util import ResultHandler
-from skpsl import ProbabilisticScoringList
-from skpsl.preprocessing.binarizer import MinEntropyBinarizer
-from skpsl.metrics import expected_entropy_loss, weighted_loss, soft_ranking_loss
 
 RESULTFOLDER = "results_rebuttal"
 DATAFOLDER = "data"
@@ -51,12 +51,17 @@ def estimator_factory(param):
                 SimpleImputer(missing_values=-1, strategy="most_frequent"), pre, psl
             )
         case "psl":
-            psl = make_pipeline(
+            return make_pipeline(
                 SimpleImputer(missing_values=-1, strategy="most_frequent"),
                 FunctionTransformer(),
                 ProbabilisticScoringList(**dict(params)),
             )
-            return psl
+        case "dt":
+            return make_pipeline(
+                SimpleImputer(missing_values=-1, strategy="most_frequent"),
+                FunctionTransformer(),
+                StagedDecisionTreeClassifier(**dict(params)),
+            )
         case _:
             raise ValueError(f"classifier {clf} not defined")
 
@@ -67,9 +72,6 @@ def conservative_weighted_loss(y_true, y_prob, m=10, *, sample_weight=None):
         y_true, 1 - ub < m * ub, sample_weight=sample_weight, normalize="all"
     ).ravel()
     return fp + m * fn
-
-
-# 1/m - ub/m < ub
 
 
 def worker_facory():
@@ -123,9 +125,11 @@ def worker_facory():
         rh.register_run(key)
 
         X, y = DataLoader(DATAFOLDER).load(dataset)
-        clf = estimator_factory(params)
+        pipeline = estimator_factory(params)
+        clf_name, *_ = params
+
         results = cross_validate(
-            clf,
+            pipeline,
             X,
             y,
             cv=ShuffleSplit(1, test_size=0.33, random_state=fold),
@@ -146,85 +150,90 @@ def worker_facory():
         y_train, y_test = y[train], y[test]
         X_train = est[:-1].transform(X[train])
         X_test = est[:-1].transform(X[test])
-        psl = est[-1]
+        clf = est[-1]
 
         results = pd.DataFrame(results).to_dict("records")
-        results[0] |= sample_aware_scorer(psl, X_train, X_test, y_train, y_test)
-        for k, stage in enumerate(psl):
-            cur_results = (
-                {
-                    f"train_{name}": scorer(stage, X_train, y_train)
-                    for name, scorer in scoring.items()
-                }
-                | {
-                    f"test_{name}": scorer(stage, X_test, y_test)
-                    for name, scorer in scoring.items()
-                }
-                | sample_aware_scorer(stage, X_train, X_test, y_train, y_test)
-                | dict(stage=k)
-            )
-            results.append(cur_results)
+        results[0] |= sample_aware_scorer(clf, X_train, X_test, y_train, y_test)
 
-            for penalty, name in [
-                ["l2", "logreg"],
-                [None, "logreg_unregularized"],
-                [None, "xgboost"],
-                [None, "random_forest"],
-            ]:
-                if k == 0:
-                    # add performance of stage clf in to mimic performance of logreg at stage 0 (majority classifier)
+        match clf_name:
+            case "dt":
+                for k, stage in enumerate(clf):
                     cur_results = (
-                        {
-                            f"train_{name}": scorer(stage, X_train, y_train)
-                            for name, scorer in scoring.items()
-                        }
-                        | {
-                            f"test_{name}": scorer(stage, X_test, y_test)
-                            for name, scorer in scoring.items()
-                        }
-                        | sample_aware_scorer(stage, X_train, X_test, y_train, y_test)
-                        | dict(stage=k)
-                        | dict(clf_variant=name)
+                            {
+                                f"train_{name}": scorer(stage, X_train, y_train)
+                                for name, scorer in scoring.items()
+                            }
+                            | {
+                                f"test_{name}": scorer(stage, X_test, y_test)
+                                for name, scorer in scoring.items()
+                            }
+                            | sample_aware_scorer(stage, X_train, X_test, y_train, y_test)
+                            | dict(stage=k)
                     )
                     results.append(cur_results)
-                else:
-                    X_train_ = X_train[:, stage.features]
-                    X_test_ = X_test[:, stage.features]
-                    if name == "xgboost":
-                        clf_pipeline = make_pipeline(
-                            SimpleImputer(missing_values=-1, strategy="most_frequent"),
-                            xgb.XGBClassifier(n_jobs=1),
-                        ).fit(X_train_, y_train)
-                    elif name == "random_forest":
-                        clf_pipeline = make_pipeline(
-                            SimpleImputer(missing_values=-1, strategy="most_frequent"),
-                            RandomForestClassifier(n_jobs=1),
-                        ).fit(X_train_, y_train)
-                    else:
-                        clf_pipeline = make_pipeline(
-                            SimpleImputer(missing_values=-1, strategy="most_frequent"),
-                            LogisticRegression(
-                                max_iter=10000, penalty=penalty, n_jobs=1
-                            ),
-                        ).fit(X_train_, y_train)
+            case "psl" | "psl_prebin":
+                for k, stage in enumerate(clf):
                     cur_results = (
-                        {
-                            f"train_{name}": scorer(clf_pipeline, X_train_, y_train)
-                            for name, scorer in scoring.items()
-                        }
-                        | {
-                            f"test_{name}": scorer(clf_pipeline, X_test_, y_test)
-                            for name, scorer in scoring.items()
-                        }
-                        | sample_aware_scorer(
-                            clf_pipeline, X_train_, X_test_, y_train, y_test
+                            {
+                                f"train_{name}": scorer(stage, X_train, y_train)
+                                for name, scorer in scoring.items()
+                            }
+                            | {
+                                f"test_{name}": scorer(stage, X_test, y_test)
+                                for name, scorer in scoring.items()
+                            }
+                            | sample_aware_scorer(stage, X_train, X_test, y_train, y_test)
+                            | dict(stage=k)
+                    )
+                    results.append(cur_results)
+
+                    # compute stage-wise classifiers
+                    for penalty, name in [
+                        ["l2", "logreg"],
+                        [None, "logreg_unregularized"],
+                        [None, "xgboost"],
+                        [None, "random_forest"],
+                    ]:
+                        if k == 0:
+                            # add performance of stage clf in to mimic performance of logreg at stage 0 (majority classifier)
+                            X_train_ = X_train
+                            X_test_ = X_test
+                            clf = stage
+                        else:
+                            X_train_ = X_train[:, stage.features]
+                            X_test_ = X_test[:, stage.features]
+                            match name:
+                                case "xgboost":
+                                    clf = make_pipeline(
+                                        SimpleImputer(missing_values=-1, strategy="most_frequent"),
+                                        xgb.XGBClassifier(n_jobs=1),
+                                    ).fit(X_train_, y_train)
+                                case "random_forest":
+                                    clf = make_pipeline(
+                                        SimpleImputer(missing_values=-1, strategy="most_frequent"),
+                                        RandomForestClassifier(n_jobs=1),
+                                    ).fit(X_train_, y_train)
+                                case _:
+                                    clf = make_pipeline(
+                                        SimpleImputer(missing_values=-1, strategy="most_frequent"),
+                                        LogisticRegression(
+                                            max_iter=10000, penalty=penalty, n_jobs=1
+                                        ),
+                                    ).fit(X_train_, y_train)
+                        cur_results = (
+                                {
+                                    f"train_{name}": scorer(clf, X_train_, y_train)
+                                    for name, scorer in scoring.items()
+                                }
+                                | {
+                                    f"test_{name}": scorer(clf, X_test_, y_test)
+                                    for name, scorer in scoring.items()
+                                }
+                                | sample_aware_scorer(clf, X_train_, X_test_, y_train, y_test)
+                                | dict(stage=k)
+                                | dict(clf_variant=name)
                         )
-                        | dict(stage=k)
-                        | dict(clf_variant=name)
-                    )
-                    del clf_pipeline
-                    gc.collect()
-                    results.append(cur_results)
+                        results.append(cur_results)
         rh.write_results(key, results)
 
     return worker
@@ -250,104 +259,43 @@ if __name__ == "__main__":
         method=["bisect"],
         stage_clf_params=[("calibration_method", "isotonic")],
     )
+    calib = base | dict(
+        stage_clf_params=[
+            ("calibration_method", "isotonic"),
+            ("calibration_method", "sigmoid"),
+            ("calibration_method", "beta"),
+            ("calibration_method", "beta_reg"),
+        ]
+    )
+
+    scoreset = base | dict(
+        score_set=[
+            (-3, -2, -1, 1, 2, 3),
+            (-2, -1, 1, 2),
+            (-1, 1),
+            tuple(list(range(-50, 0)) + list(range(1, 51))),
+        ]
+    )
 
     # original parameter space
     clf_params_orig = chain(
-        dict_product(prefix="psl_prebin", d=base | dict(method=["bisect", "brute"])),
         dict_product(prefix="psl", d=base | dict(method=["bisect", "brute"])),
-        dict_product(
-            prefix="psl",
-            d=base
-            | dict(
-                stage_clf_params=[
-                    ("calibration_method", "isotonic"),
-                    ("calibration_method", "sigmoid"),
-                    ("calibration_method", "beta"),
-                    ("calibration_method", "beta_reg"),
-                ]
-            ),
-        ),
-        dict_product(
-            prefix="psl_prebin",
-            d=base
-            | dict(
-                stage_clf_params=[
-                    ("calibration_method", "isotonic"),
-                    ("calibration_method", "sigmoid"),
-                    ("calibration_method", "beta"),
-                    ("calibration_method", "beta_reg"),
-                ]
-            ),
-        ),
-        dict_product(
-            prefix="psl_prebin",
-            d=base
-            | dict(
-                score_set=[
-                    (-3, -2, -1),
-                    (-2, -1),
-                    (1,),
-                    (1, 2),
-                    (1, 2, 3),
-                    (-3, -2, -1, 1, 2, 3),
-                    tuple(list(range(-50, 0)) + list(range(1, 51))),
-                ]
-            ),
-        ),
-        dict_product(
-            prefix="psl",
-            d=base
-            | dict(
-                score_set=[
-                    (-3, -2, -1, 1, 2, 3),
-                    (-2, -1, 1, 2),
-                    (-1, 1),
-                    tuple(list(range(-50, 0)) + list(range(1, 51))),
-                ]
-            ),
-        ),
+        dict_product(prefix="psl_prebin", d=base | dict(method=["bisect", "brute"])),
+        dict_product(prefix="psl", d=calib),
+        dict_product(prefix="psl_prebin", d=calib),
+        dict_product(prefix="psl", d=scoreset),
+        dict_product(prefix="psl_prebin", d=scoreset),
         dict_product(prefix="psl", d=base | dict(stage_loss=[soft_ranking_loss])),
+        dict_product(prefix="dt", d=dict(criterion=["entropy"], max_depth=[5]))
     )
 
     # additional configs for rebuttal with larger datasets
     clf_params_new = chain(
-        dict_product(prefix="psl", d=base | dict(method=["bisect"])),
-        dict_product(
-            prefix="psl",
-            d=base
-            | dict(
-                stage_clf_params=[
-                    ("calibration_method", "isotonic"),
-                    ("calibration_method", "sigmoid"),
-                    ("calibration_method", "beta"),
-                    ("calibration_method", "beta_reg"),
-                ]
-            ),
-        ),
-        dict_product(
-            prefix="psl_prebin",
-            d=base
-            | dict(
-                stage_clf_params=[
-                    ("calibration_method", "isotonic"),
-                    ("calibration_method", "sigmoid"),
-                    ("calibration_method", "beta"),
-                    ("calibration_method", "beta_reg"),
-                ]
-            ),
-        ),
-        dict_product(
-            prefix="psl",
-            d=base
-            | dict(
-                score_set=[
-                    (-3, -2, -1, 1, 2, 3),
-                    (-2, -1, 1, 2),
-                    (-1, 1),
-                    tuple(list(range(-50, 0)) + list(range(1, 51))),
-                ]
-            ),
-        ),
+        dict_product(prefix="psl", d=calib),
+        dict_product(prefix="psl_prebin", d=calib),
+        dict_product(prefix="psl", d=scoreset),
+        dict_product(prefix="psl_prebin", d=scoreset),
+        dict_product(prefix="dt", d=dict(criterion=["entropy"], max_depth=[5]))
     )
 
     grid = list(
