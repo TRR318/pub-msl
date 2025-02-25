@@ -1,3 +1,5 @@
 {
-    "python.analysis.typeCheckingMode": "basic"
+    "python.analysis.typeCheckingMode": "basic",
+    "python.defaultInterpreterPath": "/home/sheid/.cache/pypoetry/virtualenvs/pub-msl-FowhoNxu-py3.10/bin/python",
+    "sqlite3-editor.comment.filepath": ""
 }

@@ -1,11 +1,14 @@
-from functools import reduce
-from inspect import getfullargspec
+import logging
 from itertools import product, chain
-from operator import or_
 
+import numpy as np
 import pandas as pd
 import xgboost as xgb
+from calibration import get_ece as expected_calibration_loss
 from joblib import delayed, wrap_non_picklable_objects, Parallel
+from mapie.metrics import classification_coverage_score
+from miss import MISSClassifier
+from sklearn.dummy import DummyClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
@@ -13,21 +16,25 @@ from sklearn.metrics import (
     make_scorer,
     get_scorer,
     confusion_matrix,
-    recall_score,
+    recall_score, balanced_accuracy_score,
 )
 from sklearn.model_selection import cross_validate, ShuffleSplit
 from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import FunctionTransformer
-from skpsl import ProbabilisticScoringList
-from skpsl.metrics import expected_entropy_loss, weighted_loss, soft_ranking_loss
+from skpsl import ProbabilisticScoringList, MulticlassScoringList
+from skpsl.metrics import expected_entropy_loss, ambiguity_aware_accuracy
 from skpsl.preprocessing.binarizer import MinEntropyBinarizer
 from tqdm import tqdm
 
-from src.staged_decision_tree import StagedDecisionTreeClassifier
+from experiments.util.nb_wrapper import StagedNBClassifier
+from experiments.util.timer import Timer
 from util import DataLoader
 from util import ResultHandler
 
-RESULTFOLDER = "results_rebuttal"
+logging.basicConfig()
+logging.getLogger().setLevel(logging.ERROR)
+
+RESULTFOLDER, miss_timeout = "results_90s_miss", 90
+#RESULTFOLDER, miss_timeout = "results", 30 * 60
 DATAFOLDER = "data"
 
 
@@ -42,25 +49,27 @@ def estimator_factory(param):
         for name, v in params
     ]
     match clf:
+        case "miss":
+            kwargs = dict(params)
+            pre = MinEntropyBinarizer()
+            psl = MISSClassifier(**kwargs)
+            return make_pipeline(
+                SimpleImputer(missing_values=-1, strategy="most_frequent"), pre, psl
+            )
+
         case "psl_prebin":
             kwargs = dict(params)
-            pre = MinEntropyBinarizer(method=kwargs["method"])
-            kwargs.pop("method")
+            pre = MinEntropyBinarizer()
             psl = ProbabilisticScoringList(**kwargs)
             return make_pipeline(
                 SimpleImputer(missing_values=-1, strategy="most_frequent"), pre, psl
             )
-        case "psl":
+        case "msl_prebin":
+            kwargs = dict(params)
+            pre = MinEntropyBinarizer()
+            msl = MulticlassScoringList(**kwargs)
             return make_pipeline(
-                SimpleImputer(missing_values=-1, strategy="most_frequent"),
-                FunctionTransformer(),
-                ProbabilisticScoringList(**dict(params)),
-            )
-        case "dt":
-            return make_pipeline(
-                SimpleImputer(missing_values=-1, strategy="most_frequent"),
-                FunctionTransformer(),
-                StagedDecisionTreeClassifier(**dict(params)),
+                SimpleImputer(missing_values=-1, strategy="most_frequent"), pre, msl
             )
         case _:
             raise ValueError(f"classifier {clf} not defined")
@@ -74,13 +83,42 @@ def conservative_weighted_loss(y_true, y_prob, m=10, *, sample_weight=None):
     return fp + m * fn
 
 
+def score(scoring, clf, X_train, y_train, X_test, y_test, additional_params):
+    cur_results = dict()
+    for name, scorer in scoring.items():
+        try:
+            cur_results |= {f"train_{name}": scorer(clf, X_train, y_train)}
+        except (ValueError, UserWarning, IndexError):
+            pass
+        try:
+            cur_results |= {f"test_{name}": scorer(clf, X_test, y_test)}
+        except (ValueError, UserWarning, IndexError):
+            pass
+    return cur_results | additional_params
+
+
 def worker_facory():
+    def cov(true, pred):
+        if len(pred.shape) == 1:
+            pred = np.vstack((1 - pred, pred)).T
+        covered = pred == pred.max(axis=1, keepdims=True)
+        return classification_coverage_score(true, covered)
+
+    def eff(true, pred):
+        if len(pred.shape) == 1:
+            pred = np.vstack((1 - pred, pred)).T
+        covered = pred == pred.max(axis=1, keepdims=True)
+        return np.count_nonzero(covered, axis=1).mean()
+
     rh = ResultHandler(RESULTFOLDER)
 
     # all scorers that can be run on training and test independendly
     scoring = dict(
         acc=get_scorer("accuracy"),
-        bacc=get_scorer("balanced_accuracy"),
+        aaacc=make_scorer(ambiguity_aware_accuracy, response_method="predict_proba"),
+        bacc=make_scorer(lambda true, pred: balanced_accuracy_score(true, pred, adjusted=True),
+                         response_method="predict"),
+        ece=make_scorer(lambda true, pred: expected_calibration_loss(pred, true), response_method="predict_proba"),
         roc=get_scorer("roc_auc"),
         brier=get_scorer("neg_brier_score"),
         recall=get_scorer("recall"),
@@ -97,26 +135,9 @@ def worker_facory():
         ent=make_scorer(
             lambda _, pred: expected_entropy_loss(pred), response_method="predict_proba"
         ),
-        wloss=make_scorer(weighted_loss, response_method="predict_proba"),
+        cov=make_scorer(cov, response_method="predict_proba"),
+        eff=make_scorer(eff, response_method="predict_proba")
     )
-
-    # this function can be used to calculate scoring functions, where the out-of-sample calculation needs to take decision thresholds
-    # for the in-sample calculation into account
-    def sample_aware_scorer(estimator, X_train, X_test, y_train, y_test):
-        if "ci" in getfullargspec(estimator.predict_proba).args:
-            dicts = [
-                {
-                    f"train_conservative_wloss{ci}": conservative_weighted_loss(
-                        y_train, estimator.predict_proba(X_train, ci=ci / 100)
-                    ),
-                    f"test_conservative_wloss{ci}": conservative_weighted_loss(
-                        y_test, estimator.predict_proba(X_test, ci=ci / 100)
-                    ),
-                }
-                for ci in [5, 10, 20, 50, 80, 90, 95, 99]
-            ]
-            return reduce(or_, dicts, dict())
-        return dict()
 
     @delayed
     @wrap_non_picklable_objects
@@ -124,9 +145,12 @@ def worker_facory():
         key = (fold, dataset, params)
         rh.register_run(key)
 
+        clf_name, *_ = params
         X, y = DataLoader(DATAFOLDER).load(dataset)
         pipeline = estimator_factory(params)
-        clf_name, *_ = params
+
+        if len(np.unique(y)) > 2 and clf_name == "psl_prebin":
+            return
 
         results = cross_validate(
             pipeline,
@@ -144,6 +168,7 @@ def worker_facory():
         indices = results["indices"]
         del results["estimator"]
         del results["indices"]
+        results["n_features"] = len(est)
 
         (train,) = indices["train"]
         (test,) = indices["test"]
@@ -153,87 +178,87 @@ def worker_facory():
         clf = est[-1]
 
         results = pd.DataFrame(results).to_dict("records")
-        results[0] |= sample_aware_scorer(clf, X_train, X_test, y_train, y_test)
 
+        """
+          fit psl -> predict
+
+          fit msl -> predict
+          -> feature ordering
+          fit NB -> predict with feature seq prefix
+          -> for each feature seq prefix
+          -> for each remaining clf (lr, xgboost, rf, miss)
+              fit classifiers with featuers, predict
+        """
+        # handle stage classifiers
         match clf_name:
-            case "dt":
-                for k, stage in enumerate(clf):
-                    cur_results = (
-                            {
-                                f"train_{name}": scorer(stage, X_train, y_train)
-                                for name, scorer in scoring.items()
-                            }
-                            | {
-                                f"test_{name}": scorer(stage, X_test, y_test)
-                                for name, scorer in scoring.items()
-                            }
-                            | sample_aware_scorer(stage, X_train, X_test, y_train, y_test)
-                            | dict(stage=k)
-                    )
-                    results.append(cur_results)
             case "psl" | "psl_prebin":
                 for k, stage in enumerate(clf):
-                    cur_results = (
-                            {
-                                f"train_{name}": scorer(stage, X_train, y_train)
-                                for name, scorer in scoring.items()
-                            }
-                            | {
-                                f"test_{name}": scorer(stage, X_test, y_test)
-                                for name, scorer in scoring.items()
-                            }
-                            | sample_aware_scorer(stage, X_train, X_test, y_train, y_test)
-                            | dict(stage=k)
-                    )
-                    results.append(cur_results)
+                    results.append(score(scoring, stage, X_train, y_train, X_test, y_test, dict(stage=k)))
+            case "msl" | "msl_prebin":
+                with Timer() as timer:
+                    clf_nb = StagedNBClassifier().fit(X_train, y_train)
+                elapsed = timer.interval
+
+                for k, stage in enumerate(clf):
+                    results.append(score(scoring, stage, X_train, y_train, X_test, y_test, dict(stage=k)))
+
+                    clf = clf_nb[stage.features]
+                    if k == 0:
+                        results.append(
+                            score(scoring, clf, X_train, y_train, X_test, y_test,
+                                  dict(stage=k, clf_variant="nb", fit_time=elapsed)))
+                    else:
+                        results.append(
+                            score(scoring, clf, X_train, y_train, X_test, y_test, dict(stage=k, clf_variant="nb")))
 
                     # compute stage-wise classifiers
-                    for penalty, name in [
-                        ["l2", "logreg"],
-                        [None, "logreg_unregularized"],
-                        [None, "xgboost"],
-                        [None, "random_forest"],
-                    ]:
+                    for name in ["logreg", "xgboost", "random_forest", "miss"]:
+                        elapsed = None
                         if k == 0:
                             # add performance of stage clf in to mimic performance of logreg at stage 0 (majority classifier)
                             X_train_ = X_train
                             X_test_ = X_test
-                            clf = stage
+                            clf = DummyClassifier().fit(X_train_, y_train)
                         else:
                             X_train_ = X_train[:, stage.features]
                             X_test_ = X_test[:, stage.features]
-                            match name:
-                                case "xgboost":
-                                    clf = make_pipeline(
-                                        SimpleImputer(missing_values=-1, strategy="most_frequent"),
-                                        xgb.XGBClassifier(n_jobs=1),
-                                    ).fit(X_train_, y_train)
-                                case "random_forest":
-                                    clf = make_pipeline(
-                                        SimpleImputer(missing_values=-1, strategy="most_frequent"),
-                                        RandomForestClassifier(n_jobs=1),
-                                    ).fit(X_train_, y_train)
-                                case _:
-                                    clf = make_pipeline(
-                                        SimpleImputer(missing_values=-1, strategy="most_frequent"),
-                                        LogisticRegression(
-                                            max_iter=10000, penalty=penalty, n_jobs=1
-                                        ),
-                                    ).fit(X_train_, y_train)
-                        cur_results = (
-                                {
-                                    f"train_{name}": scorer(clf, X_train_, y_train)
-                                    for name, scorer in scoring.items()
-                                }
-                                | {
-                                    f"test_{name}": scorer(clf, X_test_, y_test)
-                                    for name, scorer in scoring.items()
-                                }
-                                | sample_aware_scorer(clf, X_train_, X_test_, y_train, y_test)
-                                | dict(stage=k)
-                                | dict(clf_variant=name)
-                        )
-                        results.append(cur_results)
+
+                            with Timer() as timer:
+                                match name:
+                                    case "xgboost":
+                                        clf = make_pipeline(
+                                            SimpleImputer(
+                                                missing_values=-1, strategy="most_frequent"
+                                            ),
+                                            xgb.XGBClassifier(n_jobs=1)
+                                        ).fit(X_train_, y_train)
+                                    case "random_forest":
+                                        clf = make_pipeline(
+                                            SimpleImputer(missing_values=-1, strategy="most_frequent"),
+                                            RandomForestClassifier(n_jobs=1)
+                                        ).fit(X_train_, y_train)
+                                    case "miss":
+                                        n = len(stage.features)
+                                        clf = make_pipeline(
+                                            SimpleImputer(missing_values=-1, strategy="most_frequent"),
+                                            MISSClassifier(mc_l0_min=n, l0_min=n, l0_max=n, mc_l0_max=n,
+                                                           max_intercept=3,
+                                                           max_coefficient=3, max_runtime=miss_timeout)
+                                        ).fit(X_train_, y_train)
+                                    case _:
+                                        clf = make_pipeline(
+                                            SimpleImputer(missing_values=-1, strategy="most_frequent"),
+                                            LogisticRegression(
+                                                max_iter=10000, penalty="l2", n_jobs=1
+                                            )
+                                        ).fit(X_train_, y_train)
+
+                            elapsed = timer.interval
+
+                        results.append(
+                            score(scoring, clf, X_train_, y_train, X_test_, y_test,
+                                  dict(stage=k, clf_variant=name, fit_time=elapsed)))
+
         rh.write_results(key, results)
 
     return worker
@@ -246,69 +271,35 @@ def dict_product(prefix, d):
 
 
 if __name__ == "__main__":
-    datasets_orig = ["thorax", 41945, 42900]
-    datasets_new = ["ACSIncome", "cali_housing_binary"]
-    splits = 100
+    # diabetes, ilp, bcc
+    datasets_bin = [37, 41945, 42900]
+    #  61 (iris), fußball, wine
+    datasets_mc = [61, "player", 187, "segmentation"]
+    splits = 20
 
     rh = ResultHandler(RESULTFOLDER)
     rh.clean()
 
     base = dict(
-        score_set=[(-3, -2, -1, 1, 2, 3)],
-        lookahead=[1],
-        method=["bisect"],
-        stage_clf_params=[("calibration_method", "isotonic")],
-    )
-    calib = base | dict(
-        stage_clf_params=[
-            ("calibration_method", "isotonic"),
-            ("calibration_method", "sigmoid"),
-            ("calibration_method", "beta"),
-            ("calibration_method", "beta_reg"),
-        ]
+        score_set=[(-3, -2, -1, 0, 1, 2, 3)],
     )
 
-    scoreset = base | dict(
-        score_set=[
-            (-3, -2, -1, 1, 2, 3),
-            (-2, -1, 1, 2),
-            (-1, 1),
-            tuple(list(range(-50, 0)) + list(range(1, 51))),
-        ]
-    )
-
+    mc_clfs = list(chain(dict_product(prefix="msl_prebin", d=base),
+                         ))
     # original parameter space
-    clf_params_orig = chain(
-        dict_product(prefix="psl", d=base | dict(method=["bisect", "brute"])),
-        dict_product(prefix="psl_prebin", d=base | dict(method=["bisect", "brute"])),
-        dict_product(prefix="psl", d=calib),
-        dict_product(prefix="psl_prebin", d=calib),
-        dict_product(prefix="psl", d=scoreset),
-        dict_product(prefix="psl_prebin", d=scoreset),
-        dict_product(prefix="psl", d=base | dict(stage_loss=[soft_ranking_loss])),
-        dict_product(prefix="dt", d=dict(criterion=["entropy"], max_depth=[5]))
-    )
-
-    # additional configs for rebuttal with larger datasets
-    clf_params_new = chain(
-        dict_product(prefix="psl", d=calib),
-        dict_product(prefix="psl_prebin", d=calib),
-        dict_product(prefix="psl", d=scoreset),
-        dict_product(prefix="psl_prebin", d=scoreset),
-        dict_product(prefix="dt", d=dict(criterion=["entropy"], max_depth=[5]))
-    )
+    clf_params = list(chain(
+        dict_product(prefix="psl_prebin", d=base),
+        mc_clfs
+    ))
 
     grid = list(
         filter(
             rh.is_unprocessed,
-            dict.fromkeys(product(range(splits), datasets_orig, clf_params_orig)),
-        )
-    )
-
-    grid += list(
-        filter(
-            rh.is_unprocessed,
-            dict.fromkeys(product(range(splits), datasets_new, clf_params_new)),
+            dict.fromkeys((split, dataset, param)
+                          for split in range(splits)
+                          for dataset, param in
+                          list(product(datasets_bin, clf_params)) +
+                          list(product(datasets_mc, mc_clfs))),
         )
     )
 
