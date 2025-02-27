@@ -576,6 +576,30 @@ files = [
 ]
 
 [[package]]
+name = "critdd"
+version = "0.0.5.dev0"
+description = "Critical difference diagrams with Python and Tikz"
+optional = false
+python-versions = ">=3.9"
+files = []
+develop = false
+
+[package.dependencies]
+networkx = "*"
+numpy = "*"
+scipy = "*"
+
+[package.extras]
+docs = ["myst-parser", "sphinx-rtd-theme"]
+tests = ["pandas"]
+
+[package.source]
+type = "git"
+url = "https://github.com/mirkobunse/critdd"
+reference = "HEAD"
+resolved_reference = "0d5422d6e10a69f2a2da2252d59de9e959caa19e"
+
+[[package]]
 name = "cycler"
 version = "0.12.1"
 description = "Composable style cycles"
@@ -3455,4 +3479,4 @@ scikit-learn = ["scikit-learn"]
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.10,<3.13"
-content-hash = "00d33c5c679dbf6592200aa79b9e574bb6c3f24bb17e967094115846684d63ed"
+content-hash = "527acc073dc7c7cd675b6382f8c084070193c658499cc37f103d8cca19fc9a18"

@@ -34,7 +34,7 @@ logging.basicConfig()
 logging.getLogger().setLevel(logging.ERROR)
 
 RESULTFOLDER, miss_timeout = "results_90s_miss", 90
-#RESULTFOLDER, miss_timeout = "results", 30 * 60
+RESULTFOLDER, miss_timeout = "results", 30 * 60
 DATAFOLDER = "data"
 
 
@@ -306,7 +306,7 @@ if __name__ == "__main__":
     worker = worker_facory()
     list(
         tqdm(
-            Parallel(n_jobs=12, return_as="generator_unordered")(
+            Parallel(n_jobs=6, return_as="generator_unordered")(
                 worker(fold, dataset, params) for fold, dataset, params in grid
             ),
             total=len(grid),
