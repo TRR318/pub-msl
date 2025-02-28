@@ -275,7 +275,7 @@ if __name__ == "__main__":
     datasets_bin = [37, 41945, 42900]
     #  61 (iris), fußball, wine
     datasets_mc = [61, "player", 187, "segmentation"]
-    splits = 20
+    splits = 25
 
     rh = ResultHandler(RESULTFOLDER)
     rh.clean()
@@ -306,7 +306,7 @@ if __name__ == "__main__":
     worker = worker_facory()
     list(
         tqdm(
-            Parallel(n_jobs=6, return_as="generator_unordered")(
+            Parallel(n_jobs=2, return_as="generator_unordered")(
                 worker(fold, dataset, params) for fold, dataset, params in grid
             ),
             total=len(grid),

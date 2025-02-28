@@ -41,11 +41,16 @@ class DataLoader:
     def stats(self, dataset):
         X,y = self.load(dataset)
         counts = np.unique(y,return_counts=True)[1]
-        counts = counts/counts.sum()
-        return {"Entropy": entropy(counts, base=len(counts)),
+        C = len(counts)
+        p = counts/counts.sum()
+        gini = 1 - np.sum(p ** 2)
+        gini_max = 1 - 1 / C
+        norm_gini = gini / gini_max if gini_max > 0 else 0
+        return {"Entropy": entropy(p, base=C),
+                "Gini": norm_gini,
                 "Instances": X.shape[0],
                 "Features": X.shape[1],
-                "Classes": len(np.unique(y))}
+                "Classes": len(np.unique(y))}, counts
 
 if __name__ == '__main__':
     print(len(DataLoader().load(61, binary=True)[1]))
