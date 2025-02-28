@@ -15,9 +15,7 @@ scipy = "~1.14"
 jupyter = "^1.0.0"
 seaborn = "^0.13"
 tqdm = "^4.66"
-#scikit-psl = { git = "http://github.com/trr318/scikit-psl", branch = "master" }
-scikit-psl = { path = "../scikit-psl/", develop = true }
-miss = { path = "../MISS/", develop = true }
+scikit-psl = { git = "http://github.com/trr318/scikit-psl", branch = "master" }
 joblib = "^1.4"
 networkx = "~3.2"
 optuna = "^4.0.0"
